@@ -147,6 +147,8 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+bool thread_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux);
+
 void do_iret (struct intr_frame *tf);
 
 #endif /* threads/thread.h */
