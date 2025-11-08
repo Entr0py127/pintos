@@ -8,6 +8,8 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 
+extern struct list sleep_list;
+
 /* See [8254] for hardware details of the 8254 timer chip. */
 
 #if TIMER_FREQ < 19
@@ -71,30 +73,44 @@ timer_calibrate (void) {
 }
 
 /* Returns the number of timer ticks since the OS booted. */
+// 현재 부팅된 이후 흐른 tick의 수를 안전하게 받아오는 함수
 int64_t
 timer_ticks (void) {
-	enum intr_level old_level = intr_disable ();
-	int64_t t = ticks;
-	intr_set_level (old_level);
-	barrier ();
+	enum intr_level old_level = intr_disable (); // 인터럽트 상태을 저장하고, 인터럽트 일시적으로 비활성화(읽는 도중 값이 들어오면 tick값이 바뀔수도 있어서 차단)
+	int64_t t = ticks;				
+	intr_set_level (old_level);			// 이전에 저장했던 상태 복원. 즉, 꺼져 있으면 키고, 켜져 있으면 끄는 것.
+	barrier ();							// 컴파일러가 명령어 순서를 재배치 못하도록 막음. 최적화 방지
 	return t;
 }
 
 /* Returns the number of timer ticks elapsed since THEN, which
    should be a value once returned by timer_ticks(). */
+// 지금 tick이 then때의 tick 보다 얼마나 흘렀는지 반환하는 함수
 int64_t
 timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
+bool cmp_wakeup_tick(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+	const struct thread *t1 = list_entry(a, struct thread, elem);
+	const struct thread *t2 = list_entry(b, struct thread, elem);
+	return t1 -> wake_tick < t2 -> wake_tick;
+}
+
 /* Suspends execution for approximately TICKS timer ticks. */
 void
 timer_sleep (int64_t ticks) {
-	int64_t start = timer_ticks ();
+	int64_t start = timer_ticks ();				// 부팅된 이후 안전하게 tick의 값을 가져옴.
 
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	enum intr_level old_level = intr_disable(); // 인터럽트 멈추기.
+	struct thread *curr = thread_current ();	// 현재 스레드
+
+	curr -> wake_tick = start + ticks;			// wake tick 설정
+	list_insert_ordered(&sleep_list, &curr -> elem, cmp_wakeup_tick, NULL);		// 그리고 sleep_list에 넣어주기
+
+	thread_block();
+
+	intr_set_level(old_level);		// 인터럽트 키기
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -126,6 +142,29 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+
+	// 어차피 ticks 순서대로 넣었으니깐 맨 처음의 wakeup_tick를 검사를 해서 ticks가 같으면 깨워준다.
+	// 이거 할때도 인터럽트 off 시켜줘야 하는 거 아닌가? 당연히?
+	// 외부 인터럽트 컨텍스트에서 인터럽트가 이미 꺼져 있는 상태
+
+	int64_t cur_tick = ticks;				// 부팅된 이후 안전하게 tick의 값을 가져옴.
+	// 리스트 비었는지 검사
+	if (list_empty(&sleep_list)) {
+		return;
+	}
+	struct list_elem *a = list_front(&sleep_list);
+	struct thread *t = list_entry(a, struct thread, elem);
+
+	while(t -> wake_tick <= cur_tick){
+		list_pop_front(&sleep_list);
+		thread_unblock(t);
+		if(list_empty(&sleep_list)) {
+			break;
+		}
+		a = list_front(&sleep_list);
+		t = list_entry(a, struct thread, elem);
+	}
+	
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
