@@ -327,10 +327,26 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	int old_priority = thread_current ()->priority;
-	thread_current ()->priority = new_priority;
+
+	// new_priority가 우선순위 기부로 들어온 우선순위가 아닌 경우
+	// 조건 : donations이 비어 있는 경우
+	if(list_empty(&thread_current()->donations)){
+		thread_current ()->original_priority = new_priority;
+		thread_current()->priority = thread_current ()->original_priority;
+	}
+	// new_priority가 우선순위 기부로 들어온 우선순위인 경우
+	else{
+		// 기증자(현재 스레드의 donations 중 맨앞에 있는거)
+		struct thread *donor = list_entry(list_front(&thread_current()->donations), struct thread, donation_elem);
+		// 현재 스레드의 우선순위를 새로운 (기부받은)우선순위로 변경
+		thread_current()->priority = 
+			(thread_current ()->original_priority > donor->priority) 
+				? thread_current ()->original_priority 
+				: donor->priority;
+	}
+
 	// priority가 낮아졌는데 ready_list에 더 높은 놈이 있으면 yield
-	if (new_priority < old_priority && !list_empty(&ready_list) &&
+	if (new_priority < thread_current ()->original_priority && !list_empty(&ready_list) &&
 		list_entry(list_front(&ready_list), struct thread, elem)->priority > new_priority)
 		thread_yield();
 }

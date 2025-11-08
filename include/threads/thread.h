@@ -90,7 +90,7 @@ struct thread {
 	tid_t tid;                          /* Thread identifier. */
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
-	int original_priority
+	int original_priority;
 	int priority;                       /* Priority. */
 	int wake_tick;	// 일어날 tick 정보
 	struct lock *waiting_lock; // 현재 대기중인 lock
@@ -146,6 +146,8 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+bool thread_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 void do_iret (struct intr_frame *tf);
 
