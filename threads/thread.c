@@ -428,8 +428,12 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 	t->status = THREAD_BLOCKED;
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
+	t->original_priority = priority;
 	t->priority = priority;
 	t->wake_tick = wakeup_time;
+
+	t->waiting_lock = NULL; // 락을 가르키는 포인터. 아무 락도 기다리고 있지 않은 상태
+	list_init(&t->donations);
 	t->magic = THREAD_MAGIC;
 }
 
