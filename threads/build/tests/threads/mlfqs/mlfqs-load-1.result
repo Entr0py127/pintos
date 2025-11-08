@@ -1,0 +1,4 @@
+FAIL
+Kernel panic in run: PANIC at ../../tests/threads/tests.c:93 in fail(): test failed
+Call stack: 0x8004213fcd 0x80042179b7 0x800421ad85 0x80042177ce 0x8004206677 0x80042067e1 0x800420612b
+Translation of call stack:
