@@ -90,8 +90,13 @@ struct thread {
 	tid_t tid;                          /* Thread identifier. */
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
+	int original_priority;
 	int priority;                       /* Priority. */
 	int wake_tick;	// 일어날 tick 정보
+	struct lock *waiting_lock; // 현재 대기중인 lock
+
+	struct list donations;
+	struct list_elem donation_elem;
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
