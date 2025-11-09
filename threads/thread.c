@@ -345,10 +345,17 @@ thread_set_priority (int new_priority) {
 	}
 	thread_current()->priority=changed_priority;
 
+	enum intr_level old_level;
+
 	// priority가 낮아졌는데 ready_list에 더 높은 놈이 있으면 yield
 	if (thread_current()->priority < old_priority && !list_empty(&ready_list) 
-		&& list_entry(list_front(&ready_list), struct thread, elem) > thread_current()->priority)
+		&& list_entry(list_front(&ready_list), struct thread, elem) > thread_current()->priority){
+		old_level = intr_disable ();
 		thread_yield();
+		intr_set_level (old_level);
+	}
+
+
 }
 
 /* Returns the current thread's priority. */
