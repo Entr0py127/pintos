@@ -69,6 +69,7 @@ sema_down (struct semaphore *sema) {
 		// 우선순위 삽입으로 변경
 		list_insert_ordered(&sema->waiters, &thread_current ()->elem, 
 			(list_less_func *)thread_priority_less, NULL);
+		// list_push_back(&sema->waiters, &thread_current ()->elem);
 		thread_block ();
 	}
 	sema->value--;
@@ -311,22 +312,12 @@ lock_release (struct lock *lock) {
 		if (donated->priority > curr->priority) {
 			curr->priority = donated->priority;
 		}
-		/*for (e = list_begin(&curr->donations); 
-			e != list_end(&curr->donations); 
-			e = list_next(e)) {
-			struct thread *t = list_entry(e, struct thread, donation_elem);
-			if (t->priority > curr->priority) {
-				curr->priority = t->priority;
-			}
-		}*/
 	
 	}
     
     lock->holder = NULL;
 	intr_set_level (old_level);
     sema_up(&lock->semaphore);
-	// 우선순위 역전 방지: yield 추가
-	thread_yield();
 	
 }
 
@@ -404,6 +395,7 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	sema_init (&waiter.semaphore, 0);
 	list_insert_ordered(&cond->waiters, &waiter.elem, 
 		(list_less_func *)cond_sema_priority_compare, NULL);
+	// list_push_back(&cond->waiters,&waiter.elem);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
