@@ -640,6 +640,7 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 	t->status = THREAD_BLOCKED;
 
 	t->waiting_lock = NULL; // 락을 가르키는 포인터. 아무 락도 기다리고 있지 않은 상태
+	t->waiting_sema = NULL;
 	list_init(&t->donations);
 }
 

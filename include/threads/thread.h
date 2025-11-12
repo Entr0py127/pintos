@@ -111,7 +111,7 @@ struct thread {
 	int64_t recent_cpu;			// thread별 cpu차지 시간 초기값 0. 고정소수점(fixed-point)
 	int nice;				// thread별 nice 값 초기는 0
 	struct lock *waiting_lock; // 현재 대기중인 lock
-
+	struct semaphore *waiting_sema;  
 	struct list donations;
 	struct list_elem donation_elem;
 	
