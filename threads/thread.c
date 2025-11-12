@@ -325,7 +325,9 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
-	list_push_back(&all_threads_list, &t->all_threads_list_elem);
+	enum intr_level old_level = intr_disable();
+    list_push_back(&all_threads_list, &t->all_threads_list_elem);
+    intr_set_level(old_level);
 
 	/* Add to run queue. */
 	thread_unblock (t);
@@ -629,7 +631,7 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 	t->wake_tick = wakeup_time;
 	// 둘다 초기값은 0으로 설정.
 	t->recent_cpu = 0;
-	if(thread_current() != idle_thread) {
+	if(t != initial_thread) {
 		t->nice = thread_current()->nice;
 	}
 	else{
@@ -649,7 +651,7 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 static struct thread *
 next_thread_to_run (void) {
 	if(thread_mlfqs){
-		for(int i = PRI_MAX; i >= PRI_MIN; i++) {
+		for(int i = PRI_MAX; i >= PRI_MIN; i--) {
 			if(!list_empty(&ready[i])){
 				struct thread *t = list_entry (list_pop_front (&ready[i]), struct thread, elem);
 				ready_thread_count--;
