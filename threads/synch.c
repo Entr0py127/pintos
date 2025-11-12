@@ -66,10 +66,16 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		// 우선순위 삽입으로 변경
-		list_insert_ordered(&sema->waiters, &thread_current ()->elem, 
-			(list_less_func *)thread_priority_less, NULL);
-		// list_push_back(&sema->waiters, &thread_current ()->elem);
+		if(thread_mlfqs){
+			list_push_back(&sema->waiters, &thread_current ()->elem);
+		}
+		else{
+			// 우선순위 삽입으로 변경
+			list_insert_ordered(&sema->waiters, &thread_current ()->elem, 
+				(list_less_func *)thread_priority_less, NULL);
+			// list_push_back(&sema->waiters, &thread_current ()->elem);
+		}
+		
 		thread_block ();
 	}
 	sema->value--;
@@ -109,18 +115,24 @@ sema_up (struct semaphore *sema) {
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
-
 	old_level = intr_disable ();
+	struct thread *t = NULL;
 	if (!list_empty (&sema->waiters)){
-		list_sort(&sema->waiters,thread_priority_less, NULL);
-		// unblock
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
-		
+		if(thread_mlfqs) {
+			t = list_entry(list_pop_front(&sema->waiters), struct thread, elem);
+		}
+		else{
+			list_sort(&sema->waiters,thread_priority_less, NULL);
+			// unblock
+			t = list_entry(list_pop_front(&sema->waiters), struct thread, elem);
+		}
+		thread_unblock (t);
 	}
 	sema->value++;
 	intr_set_level (old_level);
-	thread_yield();
+	if(t != NULL && thread_current()->priority < t->priority){
+		thread_yield();
+	}
 }
 
 static void sema_test_helper (void *sema_);
@@ -305,7 +317,6 @@ lock_release (struct lock *lock) {
 	
 	// 보유 중인 다른 lock들의 waiters 확인
 	// 현재 lock의 waiters이 있다면 : 그 중 큰 값 넣기
-	struct list_elem *e;
 	if(!list_empty(&curr->donations)){
 		// 현재 donations의 가장 큰 값
 		struct thread *donated = list_entry(list_front(&curr->donations), struct thread, donation_elem);
