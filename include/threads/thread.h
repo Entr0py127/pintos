@@ -28,6 +28,21 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+// 부동소수점 계산하는 거 매크로 정리
+typedef int64_t fixed_t;
+#define FP_SHIFT 14
+#define INT_TO_FP(n) ((n) << FP_SHIFT)				// 정수를 고정소수로 표현할 떄
+#define FP_TO_INT_ZERO(x) ((x) >> FP_SHIFT)			// 고정소수를 정수로 반환할 떄
+#define FP_TO_INT_FLOOR(x) ((x) >= 0 ? (x) >> FP_SHIFT : ((x) >> FP_SHIFT) - 1)		// 아래쪽 정수로 반올림(floor)
+#define FP_ADD(x, y) ((x) + (y))
+#define FP_SUB(x, y) ((x) - (y))
+#define FP_MUL(x, y) (((int64_t)(x)) * (y) >> FP_SHIFT)
+#define FP_DIV(x, y) (((int64_t)(x) << FP_SHIFT) / (y))
+#define FP_ADD_INT(x, n) ((x) + (INT_TO_FP(n)))
+#define FP_SUB_INT(x, n) ((x) - (INT_TO_FP(n)))
+#define FP_MUL_INT(x, n) ((x) * (n))
+#define FP_DIV_INT(x, n) ((x) / (n))
+
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -93,10 +108,14 @@ struct thread {
 	int original_priority;
 	int priority;                       /* Priority. */
 	int wake_tick;	// 일어날 tick 정보
+	int64_t recent_cpu;			// thread별 cpu차지 시간 초기값 0. 고정소수점(fixed-point)
+	int nice;				// thread별 nice 값 초기는 0
 	struct lock *waiting_lock; // 현재 대기중인 lock
 
 	struct list donations;
 	struct list_elem donation_elem;
+	
+	struct list_elem all_threads_list_elem;
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
