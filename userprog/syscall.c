@@ -41,6 +41,92 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
-	thread_exit ();
+	struct gp_registers regs=f->R;
+	int syscall_number=regs.rax;
+	//printf("syscall_number = %d\n", syscall_number);
+	int arg0=regs.rdi;
+	int arg1=regs.rsi;
+	int arg2=regs.rdx;
+	//int arg3=regs.r10;
+	//int arg4=regs.r8;
+	//int arg5=regs.r9;
+	switch(syscall_number){
+		case SYS_HALT:
+			//printf("(halt) begin\n");
+			power_off();
+			break;
+		case SYS_EXIT:
+			//printf("(exit) begin\n");
+			thread_exit ();
+			break;
+		/*
+		case SYS_FORK:
+			break;
+		case SYS_EXEC:
+			break;
+		case SYS_WAIT:
+			break;
+		case SYS_CREATE:
+			break;
+		case SYS_REMOVE:
+			break;
+		case SYS_OPEN:
+			break;
+		case SYS_FILESIZE:
+			break;
+		case SYS_READ:
+			break;*/
+		case SYS_WRITE:{
+			//printf("sys_write called\n");
+		uint64_t fd=regs.rdi;
+		const char* buffer=(const char*)regs.rsi;
+		size_t size=(size_t)regs.rdx;
+		//printf("starting write\n");
+
+		//printf("sys_write: fd=%llu, buffer=%p, size=%zu\n", fd, buffer, size);
+			if(fd==STDOUT_FILENO){
+				putbuf((const char*)buffer, (size_t)size);
+				f->R.rax=size;
+			}
+			else if(fd==STDIN_FILENO){
+				
+			}
+			else if(arg0==-1){
+				//f->R.rax=-1;
+			}
+			//return하는 rax는 실제 쓰인 바이트 수
+			break;
+		}
+		/*case SYS_SEEK:
+			break;
+		case SYS_TELL:
+			break;
+		case SYS_CLOSE:
+			break;
+		case SYS_MMAP:
+			break;
+		case SYS_MUNMAP:
+			break;
+		case SYS_CHDIR:
+			break;
+		case SYS_MKDIR:
+			break;
+		case SYS_READDIR:
+			break;
+		case SYS_ISDIR:
+			break;
+		case SYS_INUMBER:
+			break;
+		case SYS_SYMLINK:
+			break;
+		case SYS_DUP2:
+			break;
+		case SYS_MOUNT:
+			break;
+		case SYS_UMOUNT:
+			break;*/
+		default:
+		
+			break;
+	}
 }

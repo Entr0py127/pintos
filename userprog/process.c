@@ -49,7 +49,6 @@ process_create_initd (const char *file_name) {
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
-
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -199,11 +198,15 @@ process_exec (void *f_name) {
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
-int
+	int
 process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	
+
+	timer_sleep(2);
+	//printf("waiting end\n");
 	return -1;
 }
 
@@ -328,6 +331,21 @@ load (const char *file_name, struct intr_frame *if_) {
 	off_t file_ofs;
 	bool success = false;
 	int i;
+	
+	char *argv[128];
+	char *temp=palloc_get_page(0);
+	strlcpy(temp,file_name,PGSIZE);
+	char *save_ptr;
+	int argc=0;
+	argv[argc] = strtok_r(temp, " ", &save_ptr);
+	//printf("arg[%d]: %s\n",argc,argv[argc]);
+	while (argv[argc] != NULL) {
+    	argc++;
+    	argv[argc] = strtok_r(NULL, " ", &save_ptr);
+		//printf("arg[%d]: %s\n",argc,argv[argc]);
+	}
+	file_name=argv[0];
+	//printf("file name changed!: %s\n",file_name);
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -408,7 +426,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	}
 
 	/* Set up stack. */
-	if (!setup_stack (if_))
+	if (!setup_stack (if_)) //rsp = user_stack
 		goto done;
 
 	/* Start address. */
@@ -416,12 +434,47 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	uint64_t stack_ptr = if_->rsp;
+	uint64_t argv_addrs[128]; // 문자열 주소
 
+	for(int i=argc-1;i>=0;i--){ //argv 저장
+		int string_len = strlen(argv[i]) + 1; //'\0' 포함
+		stack_ptr-=string_len;
+		memcpy((void*)stack_ptr,argv[i],string_len);
+		argv_addrs[i]=stack_ptr; // 스택 주소 저장
+	}
+	int padding_length=stack_ptr%8;
+	//int padding_length=(16-stack_ptr%16)%16; //padding
+	stack_ptr-=padding_length;
+	memset((void*)(stack_ptr),0,padding_length);
+
+	for(int i=argc;i>=0;i--){
+		stack_ptr-=8;
+		if(i==argc) //push null
+			memset((void*)stack_ptr,0,8);
+		else
+			memcpy((void*)stack_ptr,&argv_addrs[i],8); // argv_addrs 사용
+	}
+	if_->R.rsi=stack_ptr; //rsi=argv[0] 주소
+
+	stack_ptr-=8;
+	memset((void*)stack_ptr,0,8); //return address null
+
+	if_->rsp=stack_ptr;//최종 rsp
+	if_->R.rdi=argc; //rdi=argc
+
+	//printf("argc: %d rdi: %lld rsi: %llx rsp: %llx\n",argc, if_->R.rdi, if_->R.rsi, if_->rsp);
+	
+	if(temp!=NULL)
+		palloc_free_page(temp);
+	
 	success = true;
+
 
 done:
 	/* We arrive here whether the load is successful or not. */
 	file_close (file);
+	//printf("rsp: %llx\n", if_->rsp);
 	return success;
 }
 
@@ -498,7 +551,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
-
 	file_seek (file, ofs);
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
