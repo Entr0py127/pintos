@@ -7,6 +7,9 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "filesys/filesys.h"
+#include "threads/vaddr.h"
+#include "threads/mmu.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -52,17 +55,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	//int arg5=regs.r9;
 	switch(syscall_number){
 		case SYS_HALT:
-			//printf("(halt) begin\n");
 			power_off();
 			break;
 		case SYS_EXIT:
 			char* file_name=thread_current()->name; //rsi는 0이라 thread_current로 받아야함
 			int exit_status=(int)arg0;
 			printf("%s: exit(%d)\n",file_name,exit_status);
-			//printf("(exit) begin\n");
 			thread_exit ();
 			break;
-		/*
+		
 		case SYS_FORK:
 			break;
 		case SYS_EXEC:
@@ -70,6 +71,20 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_WAIT:
 			break;
 		case SYS_CREATE:
+			char* name=(const char*)arg0;
+			off_t initial_size=(off_t)arg1;
+			bool success=false;
+			//printf("sys_create called: name=%s, initial_size=%lld\n", name, initial_size);
+			 //순서대로 name 이 null이 아닌지유저 stack인지, 할당되어 있는지
+			if(name!=NULL&&is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL&&initial_size>=0) 
+				success=filesys_create(name, initial_size);
+			else
+				{
+					f->R.rax=SYS_EXIT; //exit
+					f->R.rdi=-1;
+					syscall_handler(f);
+				}
+			f->R.rax=success;
 			break;
 		case SYS_REMOVE:
 			break;
@@ -78,7 +93,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_FILESIZE:
 			break;
 		case SYS_READ:
-			break;*/
+			break;
 		case SYS_WRITE:{
 			//printf("sys_write called\n");
 		uint64_t fd=regs.rdi;
