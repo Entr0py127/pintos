@@ -7,6 +7,7 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "userprog/process.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -62,9 +63,17 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			//printf("(exit) begin\n");
 			thread_exit ();
 			break;
-		/*
+		
 		case SYS_FORK:
+			tid_t child_tid;
+			if((child_tid = process_fork(thread_name,&thread_current()->tf)) == TID_ERROR){
+				return TID_ERROR;
+			}
+			else{
+				return child_tid;
+			}
 			break;
+		/*	
 		case SYS_EXEC:
 			break;
 		case SYS_WAIT:

@@ -75,8 +75,10 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
+	struct thread *curr = thread_current();
+	curr->parent_if = if_;		// 새로 만들어질 스레드 기준 부모임
 	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+			PRI_DEFAULT, __do_fork, curr);
 }
 
 #ifndef VM
@@ -90,22 +92,30 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	void *newpage;
 	bool writable;
 
-	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
-
-	/* 2. Resolve VA from the parent's page map level 4. */
+	/* 1. 부모의 페이지가 커널 페이지라면, 즉시 리턴해라. */
+	if(is_kernel_vaddr(parent)){ return false; }
+	/* 2. 부모의 pml4(페이지 맵 레벨 4)에서 해당 가상주소(VA)를 찾아라. */
 	parent_page = pml4_get_page (parent->pml4, va);
 
-	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
-	 *    TODO: NEWPAGE. */
+	/* 3. 자식 프로세스를 위해 새로운 PAL_USER 페이지를 하나 할당하고,
+	그 페이지를 NEWPAGE 변수에 저장해라. */
+	newpage = palloc_get_page (PAL_USER);
+	if(newpage){
+		return false;
+	}
+	/* 4. 부모의 페이지 내용을 NEWPAGE로 그대로 복사하고,
+	부모 페이지가 writable인지 확인해서 그 결과에 따라 WRITABLE 값을 설정해라. */
+	memcpy(newpage, parent_page, PGSIZE);
+	// 부모 페이지가 writable(부모페이지의 PTE에 저장된 비트)인지 확인
+	// 즉, 부모 페이지의 쓰기 가능 비트(writable bit)
+	//uint64_t *pte = pml4e_walk(parent->pml4,va,false); --> pte가 인자였다..
+	bool writable = (*pte & PTE_W) != 0;
 
-	/* 4. TODO: Duplicate parent's page to the new page and
-	 *    TODO: check whether parent's page is writable or not (set WRITABLE
-	 *    TODO: according to the result). */
-
-	/* 5. Add new page to child's page table at address VA with WRITABLE
-	 *    permission. */
+	/* 5. 자식의 페이지 테이블에서 가상주소 VA에 NEWPAGE를 WRITABLE 권한으로 추가. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
-		/* 6. TODO: if fail to insert page, do error handling. */
+		/* 6. 만약 페이지 삽입이 실패하면 에러 처리를 수행해라. */
+		palloc_free_page(newpage);
+		return false;
 	}
 	return true;
 }
@@ -121,7 +131,7 @@ __do_fork (void *aux) {
 	struct thread *parent = (struct thread *) aux;
 	struct thread *current = thread_current ();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = parent->parent_if; // 부모의 유저 컨텍스트
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
@@ -138,15 +148,16 @@ __do_fork (void *aux) {
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
 #else
-	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
+	if (!pml4_for_each (parent->pml4, (pte_for_each_func *)duplicate_pte(pml4e_walk(parent->pml4,parent_if,false)
+				, parent_if,parent), parent))
 		goto error;
 #endif
-
-	/* TODO: Your code goes here.
-	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
-	 * TODO:       in include/filesys/file.h. Note that parent should not return
-	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
+	/* 파일 디스크립터 복제 */
+	for(int i = 0; i < parent->fd_count; i++){
+		struct file *parent_file = parent->fd_table[i];
+		if(parent_file != NULL)
+			current->fd_table[i] = file_duplicate(parent_file);
+	}
 
 	process_init ();
 

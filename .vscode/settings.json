@@ -1,0 +1,15 @@
+{
+    "files.associations": {
+        "syscall.h": "c",
+        "intrinsic.h": "c",
+        "file.h": "c",
+        "array": "c",
+        "string_view": "c",
+        "initializer_list": "c",
+        "utility": "c",
+        "stdio.h": "c",
+        "typeinfo": "c",
+        "malloc.h": "c",
+        "types.h": "c"
+    }
+}
