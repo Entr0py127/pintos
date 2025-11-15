@@ -345,6 +345,8 @@ load (const char *file_name, struct intr_frame *if_) {
 		//printf("arg[%d]: %s\n",argc,argv[argc]);
 	}
 	file_name=argv[0];
+	int length_of_file_name=strlen(file_name)>15?15:strlen(file_name);
+	strlcpy(t->name, file_name, length_of_file_name+1);
 	//printf("file name changed!: %s\n",file_name);
 
 	/* Allocate and activate page directory. */
@@ -463,7 +465,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	if_->rsp=stack_ptr;//최종 rsp
 	if_->R.rdi=argc; //rdi=argc
 
-	//printf("argc: %d rdi: %lld rsi: %llx rsp: %llx\n",argc, if_->R.rdi, if_->R.rsi, if_->rsp);
+	//printf("argc: %8x rdi: %8x rsi: %8x rsp: %8x\n",argc, if_->R.rdi, if_->R.rsi, if_->rsp);
 	
 	if(temp!=NULL)
 		palloc_free_page(temp);

@@ -44,9 +44,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	struct gp_registers regs=f->R;
 	int syscall_number=regs.rax;
 	//printf("syscall_number = %d\n", syscall_number);
-	int arg0=regs.rdi;
-	int arg1=regs.rsi;
-	int arg2=regs.rdx;
+	uint64_t arg0=regs.rdi;
+	uint64_t arg1=regs.rsi;
+	uint64_t arg2=regs.rdx;
 	//int arg3=regs.r10;
 	//int arg4=regs.r8;
 	//int arg5=regs.r9;
@@ -56,6 +56,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			power_off();
 			break;
 		case SYS_EXIT:
+			char* file_name=thread_current()->name; //rsi는 0이라 thread_current로 받아야함
+			int exit_status=(int)arg0;
+			printf("%s: exit(%d)\n",file_name,exit_status);
 			//printf("(exit) begin\n");
 			thread_exit ();
 			break;
@@ -126,7 +129,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_UMOUNT:
 			break;*/
 		default:
-		
 			break;
 	}
 }
