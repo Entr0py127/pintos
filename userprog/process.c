@@ -109,7 +109,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	// 부모 페이지가 writable(부모페이지의 PTE에 저장된 비트)인지 확인
 	// 즉, 부모 페이지의 쓰기 가능 비트(writable bit)
 	//uint64_t *pte = pml4e_walk(parent->pml4,va,false); --> pte가 인자였다..
-	bool writable = (*pte & PTE_W) != 0;
+	writable = (*pte & PTE_W) != 0;
 
 	/* 5. 자식의 페이지 테이블에서 가상주소 VA에 NEWPAGE를 WRITABLE 권한으로 추가. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
@@ -148,8 +148,8 @@ __do_fork (void *aux) {
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
 #else
-	if (!pml4_for_each (parent->pml4, (pte_for_each_func *)duplicate_pte(pml4e_walk(parent->pml4,parent_if,false)
-				, parent_if,parent), parent))
+	if (!pml4_for_each (parent->pml4, (pte_for_each_func *)duplicate_pte(pml4e_walk(parent->pml4,parent_if->rsp,false)
+				, parent_if->rsp,parent), parent))
 		goto error;
 #endif
 	/* 파일 디스크립터 복제 */

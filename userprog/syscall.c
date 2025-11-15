@@ -66,7 +66,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		
 		case SYS_FORK:
 			tid_t child_tid;
-			if((child_tid = process_fork(thread_name,&thread_current()->tf)) == TID_ERROR){
+			// 이거 인자로 받아야할텐데...
+			if((child_tid = process_fork(thread_current()->name,&thread_current()->tf)) == TID_ERROR){
 				return TID_ERROR;
 			}
 			else{
