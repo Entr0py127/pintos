@@ -138,6 +138,7 @@ thread_init (void) {
 	list_init (&sleep_list);
 	list_init (&all_threads_list);
 
+
 	// mlfqs를 위한 priority별 ready_list 초기화 (PRI_MIN부터 PRI_MAX까지)
 	for (int i = PRI_MIN; i <= PRI_MAX; i++){
 		list_init(&ready[i]);
@@ -642,6 +643,21 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 	t->waiting_lock = NULL; // 락을 가르키는 포인터. 아무 락도 기다리고 있지 않은 상태
 	t->waiting_sema = NULL;
 	list_init(&t->donations);
+	#ifdef USERPROG
+		list_init (&t->children);			// children init
+		t->child_infop = NULL;				// NULL	로 초기화를 시켜줌
+		list_init(&t->fd_list);
+		t->fd_num = 2;		// 초기값 2로 설정, 0&1은 STDIN, STDOUT
+	#endif
+}
+
+void
+init_child(tid_t t_id, int status, int init_call){
+	struct child_info *child = (struct child_info *)malloc(sizeof(struct child_info));
+	child->tid = t_id;
+	child->exit_status = status;
+	child->called = init_call;
+	sema_init(&child->child_sema, 0);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

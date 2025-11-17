@@ -17,6 +17,7 @@
 #include "threads/thread.h"
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 #include "intrinsic.h"
 #ifdef VM
 #include "vm/vm.h"
@@ -198,27 +199,53 @@ process_exec (void *f_name) {
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
-	int
-process_wait (tid_t child_tid UNUSED) {
+int
+process_wait (tid_t child_tid) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	
+	// for(struct list_elem *e = list_begin(&thread_current()->children); e != list_end(&thread_current()->children); e = list_next(e)){
+	// 	struct child_info *child = list_entry(e, struct child_info, child_elem);
+	// 	if (child->tid == child_tid){
+	// 		// 이전의 process_wait에서 호출을 했는지 확인
+	// 		if (child->called != 0) {
+	// 			return -1;
+	// 		}
+	// 		child->called++;
+	// 		sema_down(&child->child_sema);
+	// 		// 여기서 현재 프로세스 막아두기. 자식 프로세스가 끝날때까지 부모 스레드 막아두기. 근데 언제까지? 그냥 이렇게 막아두기만 하면 되는 건가? 당연히 안 되겠지. 언제끼지 막아둘지를 결정을 해야 다시 되겠지
+	// 		// 어떤 조건을 사용해서 해야할까? 굉장히 간단할 건데 흠. 여기서 실행을 시키는 건 아니지. 그냥 부모 스레드를 재워두기만 하면 됨. 그러면 어떻게 할까? 자식의 상태를 봐줘야 하는데 자식의 상태를 어떻게 가져오지?
+	// 		// 내가 보는 게 아니라 자식이 sema_up를 해줄때까지 기다리는 것이구나. 그러면 그냥 가만히 있으면 되겠네?
+	// 		// 부모가 조건으로 체크하는 것이 아니라 그냥 자식이 exit를 할 떄 sema_up를 하는 구조.
 
-	timer_sleep(2);
-	//printf("waiting end\n");
+	// 		int status = child->exit_status;
+	// 		// child_info가 죽은 경우 이므로 이제는 child_info를 정리를 해줘야 함.
+	// 		list_remove(&child->child_elem);
+	// 		free(child);
+	// 		// 커널에서 죽은 경우 status가 -1를 리턴해 그대로 리턴
+	// 		return status;
+	// 	}
+	// }
+	// //children에 존재하지 않으면 즉, 부모의 자식이 아닌 경우
+	timer_sleep(50);
 	return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
-	struct thread *curr = thread_current ();
+	struct thread *curr = thread_current (); // 지금 종료할 쓰레드는 child이다.
 	/* TODO: Your code goes here.
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
+	// // 부모가 없는 경우에 대비
+	// if(curr->child_infop != NULL) {
+	// 	// sema_up를 이용해서 부모를 꺠워줘야 함. 그런데 이제 부모에 child_info->child_sema에 저장이 되어 있는 상태. 어떻게 부모를 찾으러 여행을 떠나지? 부모의 child_info를 가르키는 포인터를 하나 장만해서 간단하게
+	// 	curr->child_infop->exit_status = curr->exit_status;
+	// 	sema_up(&curr->child_infop->child_sema);
+	// }
 	process_cleanup ();
 }
 
