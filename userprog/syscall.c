@@ -69,25 +69,24 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			char* thread_name=(char*)arg0;
 			
 			tid_t child_tid = process_fork(thread_name,f);
-			while(child_tid >= 2){
-				
-			}
+
 			// wait() 필요
 			if(child_tid == TID_ERROR){
 				f->R.rax=-1;
-				printf("TID ERROR\n");
 			}
 			else{
 				f->R.rax = child_tid;
-				printf("SUCCESS\n");
 			}
 			break;
-		/*		
-		case SYS_EXEC:
-			break;
-		
 		case SYS_WAIT:
-			break;
+            tid_t wait_tid = (tid_t)arg0;
+            int status = process_wait(wait_tid);
+            printf("status: %d\n", status);
+            f->R.rax = status;
+            break;
+		/*
+		case SYS_EXEC:
+		 	break;
 		case SYS_CREATE:
 			break;
 		case SYS_REMOVE:
