@@ -8,6 +8,8 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "userprog/process.h"
+#include "threads/synch.h"
+#include "devices/timer.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -64,14 +66,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			thread_exit ();
 			break;
 		
-		case SYS_FORK:
-			// printf("[syscall] FORK called\n");
+		case SYS_FORK:{
+			printf("[syscall] FORK called\n");
 			char* thread_name=(char*)arg0;
-			
 			tid_t child_tid = process_fork(thread_name,f);
-			while(child_tid >= 2){
-				
-			}
+			timer_sleep(15);
 			// wait() 필요
 			if(child_tid == TID_ERROR){
 				f->R.rax=-1;
@@ -81,6 +80,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				f->R.rax = child_tid;
 				printf("SUCCESS\n");
 			}
+			break;
+		}
+		case SYS_WAIT:
+			tid_t wait_tid = (tid_t)arg0;
+			int status = process_wait(wait_tid);
+			printf("status: %d\n", status);
+			f->R.rax = status;
 			break;
 		/*		
 		case SYS_EXEC:

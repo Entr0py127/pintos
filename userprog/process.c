@@ -18,6 +18,7 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -32,6 +33,7 @@ struct fork_arg {
 	struct thread *parent;
 	struct intr_frame *parent_if;
 	uint64_t *parent_pml4;
+	struct semaphore fork_sema;
 };
 
 /* General process initializer for initd and other process. */
@@ -92,7 +94,16 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	args->parent = curr;
 	args->parent_if = if_;
 	args->parent_pml4 = curr->pml4;
-	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, args);
+
+	sema_init(&args->fork_sema, 0);
+
+	tid_t tid=thread_create (name, PRI_DEFAULT, __do_fork, args);
+	if(tid==TID_ERROR){
+		palloc_free_page(args);
+		return TID_ERROR;
+	}
+	printf("waiting sema\n");
+	sema_down(&args->fork_sema); 
 	return tid;
 }
 
@@ -101,30 +112,30 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
  * pml4_for_each. This is only for the project 2. */
 static bool
 duplicate_pte (uint64_t *pte, void *va, void *aux) {
-	printf("[dup] va=%p, pte=%p\n", va, pte);
+	//printf("[dup] va=%p, pte=%p\n", va, pte);
 	struct thread *current = thread_current ();
 	struct thread *parent = (struct thread *)aux; 
 	void *parent_page;
 	void *newpage;
 	bool writable;
 	uint64_t *parent_pml4 = parent->pml4;
-	printf("[process_fork] parent->pml4=%p\n",parent_pml4);
-	printf("[process_fork] parent=%p\n",parent);
+	//printf("[process_fork] parent->pml4=%p\n",parent_pml4);
+	//printf("[process_fork] parent=%p\n",parent);
 
 	/* 1. 가상 주소가 커널 페이지라면, 즉시 리턴해라. */
 	if(is_kernel_vaddr(va)){ 
-		printf("[dup] skip kernel va=%p\n", va);
+		//printf("[dup] skip kernel va=%p\n", va);
 		return true; 
 	}
 	/* 2. 부모의 pml4(페이지 맵 레벨 4)에서 해당 가상주소(VA)를 찾아라. */
 	parent_page = pml4_get_page (parent_pml4, va);
-	printf("parent_page FIND\n");
+	//printf("parent_page FIND\n");
 
 	/* 3. 자식 프로세스를 위해 새로운 PAL_USER 페이지를 하나 할당하고,
 	그 페이지를 NEWPAGE 변수에 저장해라. */
 	newpage = palloc_get_page (PAL_USER);
-	printf("newpage SAVE\n");
-	if(newpage){
+	//printf("newpage SAVE\n");
+	if(newpage==NULL){
 		return false;
 	}
 	/* 4. 부모의 페이지 내용을 NEWPAGE로 그대로 복사하고,
@@ -168,14 +179,12 @@ __do_fork (void *aux) {
     // }
 	// fd_table 임시 할당 (비어있어도)
 	current->fd_table = palloc_get_page(PAL_ZERO);
-	memcpy(current->fd_table, parent->fd_table, PGSIZE);
+	//memcpy(current->fd_table, parent->fd_table, PGSIZE);
 	current->fd_count = parent->fd_count;
 
-	printf("[__do_fork] parent->fd_table=%p\n", parent->fd_table);
-	printf("[__do_fork] current->fd_table=%p\n", current->fd_table);
+	//printf("[__do_fork] parent->fd_table=%p\n", parent->fd_table);
+	//printf("[__do_fork] current->fd_table=%p\n", current->fd_table);
 
-	palloc_free_page(args);
-	
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
 
@@ -189,10 +198,10 @@ __do_fork (void *aux) {
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
 #else
-	// if (!pml4_for_each (parent_pml4, duplicate_pte, parent)){
-	// 	goto error;
-	// }
-	printf("[__do_fork] About to copy pages\n");
+	if (!pml4_for_each (parent_pml4, duplicate_pte, parent)){
+		goto error;
+	}
+	/*printf("[__do_fork] About to copy pages\n");
     printf("[__do_fork] parent_pml4=%p\n", parent_pml4);
 	bool result = pml4_for_each(parent_pml4, duplicate_pte, parent);
     printf("[__do_fork] parent adress: %p\n",parent);
@@ -203,26 +212,29 @@ __do_fork (void *aux) {
         thread_exit();
     }
     
-    printf("[__do_fork] Page copy complete\n");
+    printf("[__do_fork] Page copy complete\n");*/
 #endif
 	/* 파일 디스크립터 복제 */
+	//printf("fd_count: %d\n", parent->fd_count);
 	for(int i = 0; i < parent->fd_count; i++){
 		struct file *parent_file = parent->fd_table[i];
-		printf("ADDRESS OF PARENT FILE: %p\n",parent_file);
+		//printf("ADDRESS OF PARENT FILE: %p\n",parent_file);
 
 		if(parent_file != NULL)
 			current->fd_table[i] = file_duplicate(parent_file);
 	}
-
+	if_.R.rax=0;
+	sema_up(&args->fork_sema); 
 	process_init ();
-
+	palloc_free_page(aux);
 	/* Finally, switch to the newly created process. */
 	if (succ)
 	{
 		do_iret (&if_);
 	}
 error:
-	palloc_free_page(args);
+	palloc_free_page(aux);
+	sema_up(&args->fork_sema);
 	thread_exit ();
 }
 
@@ -275,11 +287,11 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX:       implementing the process_wait. */
 	
 
-	timer_sleep(10);
+	timer_sleep(30);
 	//printf("waiting end\n");
-	return -1;
-}
 
+	return 81;  
+}
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
