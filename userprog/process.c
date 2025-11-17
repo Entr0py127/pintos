@@ -227,7 +227,7 @@ process_wait (tid_t child_tid) {
 	// 	}
 	// }
 	// //children에 존재하지 않으면 즉, 부모의 자식이 아닌 경우
-	timer_sleep(50);
+	timer_sleep(30);
 	return -1;
 }
 

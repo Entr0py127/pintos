@@ -125,16 +125,57 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				}
 			break;
 			}
-		case SYS_FILESIZE:
-			break;
-		case SYS_READ:
+		case SYS_FILESIZE:{
 			int fd = (int)arg0;
-			const char* buffer=(const char*)regs.rsi;
-			unsigned size = (unsigned)arg2;
-
-			// 이제 파일을 읽어서 버퍼에 읽어서 해야 함.
-			
+			struct file *file=NULL;
+			struct list *fd_list = &thread_current()->fd_list;
+			for(struct list_elem *e = list_begin(fd_list); e != list_end(fd_list); e = list_next(e)){
+				struct fd *temp= list_entry(e, struct fd, fd_elem);
+				if (temp->cur_fd == fd) {
+					file = temp->file;
+					break;
+				}
+			}
+			off_t filesize=file_length(file); 
+			//printf("filesize: %d\n",filesize);
+			f->R.rax=filesize;
 			break;
+
+		}
+
+		case SYS_READ:{
+			int fd = (int)arg0;
+			char* buffer=(char*)arg1;
+			off_t size = (off_t)arg2;
+			struct file *file=NULL;
+			struct list *fd_list = &thread_current()->fd_list;
+			for(struct list_elem *e = list_begin(fd_list); e != list_end(fd_list); e = list_next(e)){
+				struct fd *temp= list_entry(e, struct fd, fd_elem);
+				if (temp->cur_fd == fd) {
+					file = temp->file;
+					break;
+				}
+			}
+			if(file==NULL)
+			{
+				f->R.rax=SYS_EXIT; //exit
+				f->R.rdi=-1;
+				syscall_handler(f);
+			}
+			if(fd==0){
+				for(int i=0;i<size;i++)
+				{
+					memcpy((char*)buffer,(char*)input_getc(),sizeof(char));
+					buffer+=sizeof(char);
+				}
+				f->R.rax=size;
+			}
+			else {
+				int bytes_read=file_read(file,buffer,size);
+				f->R.rax=bytes_read;
+			}
+			break;
+		}
 		case SYS_WRITE:{
 			//printf("sys_write called\n");
 		uint64_t fd=regs.rdi;
@@ -147,11 +188,30 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				putbuf((const char*)buffer, (size_t)size);
 				f->R.rax=size;
 			}
+			
 			else if(fd==STDIN_FILENO){
-				
-			}
+				f->R.rax=-1;
+			}/*
 			else if(arg0==-1){
 				//f->R.rax=-1;
+			}*/
+			else{
+				struct file *file=NULL;
+				struct list *fd_list = &thread_current()->fd_list;
+				for(struct list_elem *e = list_begin(fd_list); e != list_end(fd_list); e = list_next(e)){
+					struct fd *temp= list_entry(e, struct fd, fd_elem);
+					if (temp->cur_fd == fd) {
+						file = temp->file;
+						break;
+					}
+				}
+				int bytes_write=file_write(file,buffer,size);
+				if(bytes_write==size)
+					f->R.rax=bytes_write;
+				else if(bytes_write<size)
+					f->R.rax=-1;
+				else
+					f->R.rax=bytes_write;
 			}
 			//return하는 rax는 실제 쓰인 바이트 수
 			break;
@@ -160,7 +220,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_TELL:
 			break;*/
-		case SYS_CLOSE:
+		case SYS_CLOSE:{
 			int fd = (int)arg0;
 			if (fd < 2) {
 				break;
@@ -175,6 +235,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				}
 			}
 			break;
+		}
 		/*case SYS_MMAP:
 			break;
 		case SYS_MUNMAP:
