@@ -100,6 +100,20 @@ typedef int64_t fixed_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+struct child_info {
+	tid_t tid;
+	int exit_status;
+	int called;
+	struct list_elem child_elem;
+	struct semaphore *child_sema;
+};
+
+struct fd {
+	struct file *file;
+	struct list_elem fd_elem;
+	int cur_fd;						// 지금 이 파일이 가지고 있는 fd의 숫자
+};
+
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
@@ -123,6 +137,11 @@ struct thread {
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	struct list children;				// 직계 자식들에 관한 리스트
+	struct child_info *child_infop;		// 부모쪽의 child_info를 가르키도록 하는 포인터 변수. 이걸 이용해서 sema_up를 실행.
+	int exit_status;					// 만약 child_info안에 있다가 부모가 없어지면 애를 들고올 방법이 없음.
+	struct list fd_list;
+	int fd_num;							// 전체 fd 숫자
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -141,6 +160,8 @@ extern bool thread_mlfqs;
 
 void thread_init (void);
 void thread_start (void);
+
+void init_child(tid_t t_id, int stauts, int init_call);
 
 void thread_tick (void);
 void thread_print_stats (void);

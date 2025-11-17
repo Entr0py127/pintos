@@ -10,6 +10,7 @@
 #include "filesys/filesys.h"
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
+#include "filesys/file.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -60,6 +61,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_EXIT:{
 			char* file_name=thread_current()->name; //rsi는 0이라 thread_current로 받아야함
 			int exit_status=(int)arg0;
+			// thread_current()->exit_status = exit_status;		// child_info의 exit_status에 정보를 넣어주기. 이걸 넣어줘야 나중에 wait을 하는데 넣어줄 수가 있음.
 			printf("%s: exit(%d)\n",file_name,exit_status);
 			thread_exit ();
 			break;
@@ -68,8 +70,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_EXEC:
 			break;
-		case SYS_WAIT:
+		case SYS_WAIT:{
+			// tid_t tid = (tid_t)arg0;
+			// int status = process_wait(tid);
+			// f->R.rax = status;
 			break;
+		}
 		case SYS_CREATE:{
 			char* name=(char*)arg0;
 			off_t initial_size=(off_t)arg1;
@@ -85,30 +91,49 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				}
 			f->R.rax=success;
 			break;
-			}
+		}
 		case SYS_REMOVE:
 			break;
 		case SYS_OPEN:{
 			char* name=(char*)arg0;
-			bool success=false;
 			if(name!=NULL&&is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL){
-				if(filesys_open(name)!=NULL)
-					success=true;
-				else
-					success=false;
+				struct file *fo =filesys_open(name);
+				if(fo != NULL){
+					// 리턴해주는 값이 fd인 거임. 이제 이 fd값을 어디에 저장을 해서 출력을 해야하는게 문제인 거지. 어떤 방식으로 해볼까..... 스레드에 저장을 해야 하는 건가???? 그런 거 같은데?
+					// 파일이 오픈이 되었다는 것.
+					struct thread *t = thread_current();
+					struct fd *fd = (struct fd *)malloc(sizeof(struct fd));
+					if(fd == NULL) {
+						file_close(fo);
+						f->R.rax = -1;
+						break;
+					}
+					fd->file = fo;
+					list_push_back(&t->fd_list, &fd->fd_elem);
+					fd->cur_fd = ++t->fd_num;
+					f->R.rax=fd->cur_fd;
 				}
+				else
+					f->R.rax=-1;
+				}
+			// 이름이 정상적이지 않거나 하면 exit으로. 재귀 수정 나중에 수정
 			else
 				{
 					f->R.rax=SYS_EXIT; //exit
 					f->R.rdi=-1;
 					syscall_handler(f);
 				}
-			f->R.rax=success;
 			break;
 			}
 		case SYS_FILESIZE:
 			break;
 		case SYS_READ:
+			int fd = (int)arg0;
+			const char* buffer=(const char*)regs.rsi;
+			unsigned size = (unsigned)arg2;
+
+			// 이제 파일을 읽어서 버퍼에 읽어서 해야 함.
+			
 			break;
 		case SYS_WRITE:{
 			//printf("sys_write called\n");
@@ -134,10 +159,23 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		/*case SYS_SEEK:
 			break;
 		case SYS_TELL:
-			break;
+			break;*/
 		case SYS_CLOSE:
+			int fd = (int)arg0;
+			if (fd < 2) {
+				break;
+			}
+			for(struct list_elem *e = list_begin(&thread_current()->fd_list); e != list_end(&thread_current()->fd_list); e = list_next(e)){
+				struct fd *FD= list_entry(e, struct fd, fd_elem);
+				if (FD->cur_fd == fd) {
+					file_close(FD->file);
+					list_remove(e);
+					free(FD);
+					break;
+				}
+			}
 			break;
-		case SYS_MMAP:
+		/*case SYS_MMAP:
 			break;
 		case SYS_MUNMAP:
 			break;
