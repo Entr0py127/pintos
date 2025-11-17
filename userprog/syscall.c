@@ -11,6 +11,7 @@
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
 #include "filesys/file.h"
+#include "userprog/process.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -44,6 +45,7 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
+	printf("SYSCALL NUM: %d\n", f->R.rax);
 	// TODO: Your implementation goes here.
 	struct gp_registers regs=f->R;
 	int syscall_number=regs.rax;
@@ -61,19 +63,34 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_EXIT:{
 			char* file_name=thread_current()->name; //rsi는 0이라 thread_current로 받아야함
 			int exit_status=(int)arg0;
-			// thread_current()->exit_status = exit_status;		// child_info의 exit_status에 정보를 넣어주기. 이걸 넣어줘야 나중에 wait을 하는데 넣어줄 수가 있음.
+			thread_current()->exit_status = exit_status;		// child_info의 exit_status에 정보를 넣어주기. 이걸 넣어줘야 나중에 wait을 하는데 넣어줄 수가 있음.
 			printf("%s: exit(%d)\n",file_name,exit_status);
 			thread_exit ();
 			break;
+		}
+		case SYS_FORK:{
+			// printf("[syscall] FORK called\n");
+			char* thread_name=(char*)arg0;
+			
+			tid_t child_tid = process_fork(thread_name,f);
+
+			// wait() 필요
+			if(child_tid == TID_ERROR){
+				f->R.rax=-1;
 			}
-		case SYS_FORK:
+			else{
+				f->R.rax = child_tid;
+			}
 			break;
-		case SYS_EXEC:
-			break;
+		}
+		/*case SYS_EXEC:
+		 	break;
+			*/
 		case SYS_WAIT:{
-			// tid_t tid = (tid_t)arg0;
-			// int status = process_wait(tid);
-			// f->R.rax = status;
+			//printf("wait start\n");
+			tid_t tid = (tid_t)arg0;
+			int status = process_wait(tid);
+			f->R.rax = status;
 			break;
 		}
 		case SYS_CREATE:{
@@ -160,7 +177,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_TELL:
 			break;*/
-		case SYS_CLOSE:
+		case SYS_CLOSE:{
 			int fd = (int)arg0;
 			if (fd < 2) {
 				break;
@@ -175,6 +192,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				}
 			}
 			break;
+		}
 		/*case SYS_MMAP:
 			break;
 		case SYS_MUNMAP:

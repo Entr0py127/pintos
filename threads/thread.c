@@ -326,6 +326,13 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+	/* fd_table 생성 */
+	t->fd_table = palloc_get_page(PAL_ZERO);
+	t->fd_count = 2;
+	// 파일이 없기 때문에 특수 처리
+	t->fd_table[0] = NULL;   // stdin
+	t->fd_table[1] = NULL;   // stdout
+
 	enum intr_level old_level = intr_disable();
     list_push_back(&all_threads_list, &t->all_threads_list_elem);
     intr_set_level(old_level);
@@ -544,7 +551,6 @@ thread_get_nice (void) {
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
-	struct thread *t = thread_current();
 	int64_t x = FP_MUL_INT(load_avg, 100);
 	if(x >= 0) {
 		return (x + ((int64_t)1 << (FP_SHIFT-1))) >> FP_SHIFT;
@@ -651,14 +657,6 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 	#endif
 }
 
-void
-init_child(tid_t t_id, int status, int init_call){
-	struct child_info *child = (struct child_info *)malloc(sizeof(struct child_info));
-	child->tid = t_id;
-	child->exit_status = status;
-	child->called = init_call;
-	sema_init(&child->child_sema, 0);
-}
 
 /* Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
