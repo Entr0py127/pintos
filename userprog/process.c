@@ -27,6 +27,13 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+/* 현재의 if_ 정보를 fork_arg로 한번에 넘겨주기 위해 */
+struct fork_arg {
+	struct thread *parent;
+	struct intr_frame *parent_if;
+	uint64_t *parent_pml4;
+};
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -51,6 +58,7 @@ process_create_initd (const char *file_name) {
 	strlcpy (fn_copy, file_name, PGSIZE);
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -75,10 +83,17 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
+	struct fork_arg *args = palloc_get_page(PAL_ZERO);
+	if(args == NULL){
+		return TID_ERROR;
+	}
 	struct thread *curr = thread_current();
-	curr->parent_if = if_;		// 새로 만들어질 스레드 기준 부모임
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, curr);
+
+	args->parent = curr;
+	args->parent_if = if_;
+	args->parent_pml4 = curr->pml4;
+	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, args);
+	return tid;
 }
 
 #ifndef VM
@@ -86,20 +101,29 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
  * pml4_for_each. This is only for the project 2. */
 static bool
 duplicate_pte (uint64_t *pte, void *va, void *aux) {
+	printf("[dup] va=%p, pte=%p\n", va, pte);
 	struct thread *current = thread_current ();
-	struct thread *parent = (struct thread *) aux;
+	struct thread *parent = (struct thread *)aux; 
 	void *parent_page;
 	void *newpage;
 	bool writable;
+	uint64_t *parent_pml4 = parent->pml4;
+	printf("[process_fork] parent->pml4=%p\n",parent_pml4);
+	printf("[process_fork] parent=%p\n",parent);
 
-	/* 1. 부모의 페이지가 커널 페이지라면, 즉시 리턴해라. */
-	if(is_kernel_vaddr(parent)){ return false; }
+	/* 1. 가상 주소가 커널 페이지라면, 즉시 리턴해라. */
+	if(is_kernel_vaddr(va)){ 
+		printf("[dup] skip kernel va=%p\n", va);
+		return true; 
+	}
 	/* 2. 부모의 pml4(페이지 맵 레벨 4)에서 해당 가상주소(VA)를 찾아라. */
-	parent_page = pml4_get_page (parent->pml4, va);
+	parent_page = pml4_get_page (parent_pml4, va);
+	printf("parent_page FIND\n");
 
 	/* 3. 자식 프로세스를 위해 새로운 PAL_USER 페이지를 하나 할당하고,
 	그 페이지를 NEWPAGE 변수에 저장해라. */
 	newpage = palloc_get_page (PAL_USER);
+	printf("newpage SAVE\n");
 	if(newpage){
 		return false;
 	}
@@ -127,13 +151,31 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
  *       this function. */
 static void
 __do_fork (void *aux) {
+	struct fork_arg *args = (struct fork_arg *)aux;
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
+	struct thread *parent = args->parent;
+	uint64_t *parent_pml4 = args->parent_pml4;
+    if (parent_pml4 == NULL) {
+        thread_exit();
+    }
 	struct thread *current = thread_current ();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if = parent->parent_if; // 부모의 유저 컨텍스트
+	struct intr_frame *parent_if = args->parent_if; // 부모의 유저 컨텍스트
 	bool succ = true;
 
+	// 추후 fd_table 만들면 삭제
+    // if (parent->fd_table != NULL) {
+    //     current->fd_table = palloc_get_page(PAL_ZERO);
+    // }
+	// fd_table 임시 할당 (비어있어도)
+	current->fd_table = palloc_get_page(PAL_ZERO);
+	memcpy(current->fd_table, parent->fd_table, PGSIZE);
+	current->fd_count = parent->fd_count;
+
+	printf("[__do_fork] parent->fd_table=%p\n", parent->fd_table);
+	printf("[__do_fork] current->fd_table=%p\n", current->fd_table);
+
+	palloc_free_page(args);
+	
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
 
@@ -141,20 +183,33 @@ __do_fork (void *aux) {
 	current->pml4 = pml4_create();
 	if (current->pml4 == NULL)
 		goto error;
-
 	process_activate (current);
 #ifdef VM
 	supplemental_page_table_init (&current->spt);
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
 #else
-	if (!pml4_for_each (parent->pml4, (pte_for_each_func *)duplicate_pte(pml4e_walk(parent->pml4,parent_if->rsp,false)
-				, parent_if->rsp,parent), parent))
-		goto error;
+	// if (!pml4_for_each (parent_pml4, duplicate_pte, parent)){
+	// 	goto error;
+	// }
+	printf("[__do_fork] About to copy pages\n");
+    printf("[__do_fork] parent_pml4=%p\n", parent_pml4);
+	bool result = pml4_for_each(parent_pml4, duplicate_pte, parent);
+    printf("[__do_fork] parent adress: %p\n",parent);
+    printf("[__do_fork] pml4_for_each returned: %d\n", result);
+    
+    if (!result) {
+        printf("[__do_fork] ERROR: page copy failed\n");
+        thread_exit();
+    }
+    
+    printf("[__do_fork] Page copy complete\n");
 #endif
 	/* 파일 디스크립터 복제 */
 	for(int i = 0; i < parent->fd_count; i++){
 		struct file *parent_file = parent->fd_table[i];
+		printf("ADDRESS OF PARENT FILE: %p\n",parent_file);
+
 		if(parent_file != NULL)
 			current->fd_table[i] = file_duplicate(parent_file);
 	}
@@ -163,8 +218,11 @@ __do_fork (void *aux) {
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
+	{
 		do_iret (&if_);
+	}
 error:
+	palloc_free_page(args);
 	thread_exit ();
 }
 
@@ -172,7 +230,8 @@ error:
  * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
-	char *file_name = f_name;
+	char *file_name = (char *)palloc_get_page(PAL_ZERO); /* IMPLEMENTED IN PROJECT 2-3. */
+	strlcpy(file_name, (char *)f_name, strlen(f_name) + 1);
 	bool success;
 
 	/* We cannot use the intr_frame in the thread structure.
@@ -216,7 +275,7 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX:       implementing the process_wait. */
 	
 
-	timer_sleep(2);
+	timer_sleep(10);
 	//printf("waiting end\n");
 	return -1;
 }
@@ -488,6 +547,11 @@ done:
 	/* We arrive here whether the load is successful or not. */
 	file_close (file);
 	//printf("rsp: %llx\n", if_->rsp);
+
+	printf("=== Debug parent paging ===\n");
+	void *test = pml4_get_page(thread_current()->pml4, (void*)0x400000);
+	printf("parent 0x400000 -> %p\n", test);
+
 	return success;
 }
 

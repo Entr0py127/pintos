@@ -65,18 +65,27 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		
 		case SYS_FORK:
-			tid_t child_tid;
-			// 이거 인자로 받아야할텐데...
-			if((child_tid = process_fork(thread_current()->name,&thread_current()->tf)) == TID_ERROR){
-				return TID_ERROR;
+			// printf("[syscall] FORK called\n");
+			char* thread_name=(char*)arg0;
+			
+			tid_t child_tid = process_fork(thread_name,f);
+			while(child_tid >= 2){
+				
+			}
+			// wait() 필요
+			if(child_tid == TID_ERROR){
+				f->R.rax=-1;
+				printf("TID ERROR\n");
 			}
 			else{
-				return child_tid;
+				f->R.rax = child_tid;
+				printf("SUCCESS\n");
 			}
 			break;
-		/*	
+		/*		
 		case SYS_EXEC:
 			break;
+		
 		case SYS_WAIT:
 			break;
 		case SYS_CREATE:

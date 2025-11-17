@@ -152,6 +152,7 @@ pml4_for_each (uint64_t *pml4, pte_for_each_func *func, void *aux) {
 			if (!pdp_for_each ((uint64_t *) PTE_ADDR (pdpe), func, aux, i))
 				return false;
 	}
+	printf("for_each COMPLTIE");
 	return true;
 }
 

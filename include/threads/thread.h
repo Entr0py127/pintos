@@ -128,7 +128,7 @@ struct thread {
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
-	struct intr_frame *parent_if;
+	/* struct intr_frame *parent_if;*/
 	struct file **fd_table;  // 이 스레드만의 파일 디스크립터 테이블
 	int fd_count;
 
