@@ -38,6 +38,11 @@ struct fork_arg {
 	struct semaphore sema;
 };
 
+struct initd_arg{
+	char *file_name;
+	struct child_info *info;
+};
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -53,6 +58,9 @@ tid_t
 process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
+	struct thread *curr = thread_current();
+	struct child_info *child;
+	struct initd_arg *aux;
 
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
@@ -60,24 +68,54 @@ process_create_initd (const char *file_name) {
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
-	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 
-	if (tid == TID_ERROR)
+	child = malloc(sizeof(*child));
+	if(child == NULL) {
+		palloc_free_page(fn_copy);
+		return TID_ERROR;
+	}
+	child->called = 0;
+	child->exit_status = 0;
+	sema_init(&child->child_sema, 0);
+	aux = malloc(sizeof(*aux));
+	if(child == NULL) {
+		free(child);
+		palloc_free_page(fn_copy);
+		return TID_ERROR;
+	}
+	aux->file_name = fn_copy;
+	aux->info = child;
+
+	/* Create a new thread to execute FILE_NAME. */
+	tid = thread_create (file_name, PRI_DEFAULT, initd, aux);
+
+	if (tid == TID_ERROR){
+		free(child);
+		free(aux);
 		palloc_free_page (fn_copy);
+		return TID_ERROR;
+	}
+	child->tid = tid;
+	list_push_back(&curr->children, &child->child_elem);
+
 	return tid;
 }
 
 /* A thread function that launches first user process. */
 static void
 initd (void *f_name) {
+	struct initd_arg *aux = f_name;
+	struct child_info *child = aux->info;
+	char *file_name = aux->file_name;
+	thread_current()->child_infop = child;
+	free(aux);
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
 
 	process_init ();
 
-	if (process_exec (f_name) < 0)
+	if (process_exec (file_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
 }
@@ -110,7 +148,6 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	child->exit_status = 0;
 	child->called = 0;
 	sema_init(&child->child_sema, 0);
-	printf("sema: %d \n", child->child_sema->value);
 	list_push_back(&curr->children, &child->child_elem);
 
 	sema_down(&args->sema);
@@ -254,6 +291,7 @@ process_exec (void *f_name) {
 	if (!success)
 		return -1;
 
+	
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
@@ -274,36 +312,20 @@ process_wait (tid_t child_tid) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	// printf("start")
-	if(child_tid != 1){
-		for(struct list_elem *e = list_begin(&thread_current()->children); e != list_end(&thread_current()->children); e = list_next(e)){
-			struct child_info *child = list_entry(e, struct child_info, child_elem);
-			if (child->tid == child_tid){
-				// 이전의 process_wait에서 호출을 했는지 확인
-				if (child->called != 0) {
-					return -1;
-				}
-				child->called++;
-				printf("sema: %d \n", child->child_sema->value);
-				sema_down(&child->child_sema);
-				printf("sema: %d \n", child->child_sema->value);
-				// 여기서 현재 프로세스 막아두기. 자식 프로세스가 끝날때까지 부모 스레드 막아두기. 근데 언제까지? 그냥 이렇게 막아두기만 하면 되는 건가? 당연히 안 되겠지. 언제끼지 막아둘지를 결정을 해야 다시 되겠지
-				// 어떤 조건을 사용해서 해야할까? 굉장히 간단할 건데 흠. 여기서 실행을 시키는 건 아니지. 그냥 부모 스레드를 재워두기만 하면 됨. 그러면 어떻게 할까? 자식의 상태를 봐줘야 하는데 자식의 상태를 어떻게 가져오지?
-				// 내가 보는 게 아니라 자식이 sema_up를 해줄때까지 기다리는 것이구나. 그러면 그냥 가만히 있으면 되겠네?
-				// 부모가 조건으로 체크하는 것이 아니라 그냥 자식이 exit를 할 떄 sema_up를 하는 구조.
 
-				int status = child->exit_status;
-				// child_info가 죽은 경우 이므로 이제는 child_info를 정리를 해줘야 함.
-				list_remove(&child->child_elem);
-				free(child);
-				// 커널에서 죽은 경우 status가 -1를 리턴해 그대로 리턴
-				return status;
+	for(struct list_elem *e = list_begin(&thread_current()->children); e != list_end(&thread_current()->children); e = list_next(e)){
+		struct child_info *child = list_entry(e, struct child_info, child_elem);
+		if (child->tid == child_tid){
+			if (child->called != 0) {
+				return -1;
 			}
+			child->called++;
+			sema_down(&child->child_sema);
+			int status = child->exit_status;
+			list_remove(&child->child_elem);
+			free(child);
+			return status;
 		}
-	}
-	// //children에 존재하지 않으면 즉, 부모의 자식이 아닌 경우
-	else{
-		timer_sleep(50);
 	}
 	return -1;
 }
@@ -317,15 +339,17 @@ process_exit (void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
-	// 부모가 없는 경우에 대비
+	while (!list_empty(&curr->fd_list)) {
+        struct list_elem *e = list_pop_front(&curr->fd_list);
+        struct fd *f = list_entry(e, struct fd, fd_elem);
+        file_close(f->file);
+        free(f);
+    }
+
 	if(curr->child_infop != NULL) {
-		// sema_up를 이용해서 부모를 꺠워줘야 함. 그런데 이제 부모에 child_info->child_sema에 저장이 되어 있는 상태. 어떻게 부모를 찾으러 여행을 떠나지? 부모의 child_info를 가르키는 포인터를 하나 장만해서 간단하게
 		curr->child_infop->exit_status = curr->exit_status;
-		printf("sema: %d \n", curr->child_infop->child_sema->value);
 		sema_up(&curr->child_infop->child_sema);
-		printf("sema: %d \n", curr->child_infop->child_sema->value);
 	}
-	process_cleanup ();
 }
 
 /* Free the current process's resources. */
@@ -582,7 +606,7 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	file_close (file);
-	//printf("rsp: %llx\n", if_->rsp);
+	sema_up(&thread_current()->exec_sema);
 	return success;
 }
 

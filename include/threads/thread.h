@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -105,7 +106,7 @@ struct child_info {
 	int exit_status;
 	int called;
 	struct list_elem child_elem;
-	struct semaphore *child_sema;
+	struct semaphore child_sema;
 };
 
 struct fd {
@@ -125,7 +126,8 @@ struct thread {
 	int64_t recent_cpu;			// thread별 cpu차지 시간 초기값 0. 고정소수점(fixed-point)
 	int nice;				// thread별 nice 값 초기는 0
 	struct lock *waiting_lock; // 현재 대기중인 lock
-	struct semaphore *waiting_sema;  
+	struct semaphore *waiting_sema;
+	struct semaphore exec_sema;
 	struct list donations;
 	struct list_elem donation_elem;
 	

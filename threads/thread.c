@@ -128,13 +128,12 @@ thread_init (void) {
 	};
 	lgdt (&gdt_ds);
 
-	load_avg = 0;			//load_avg의 초기화 값: 0	
+	load_avg = 0;
 
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
-	// sleep_list 초기화
 	list_init (&sleep_list);
 	list_init (&all_threads_list);
 
@@ -648,6 +647,7 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 
 	t->waiting_lock = NULL; // 락을 가르키는 포인터. 아무 락도 기다리고 있지 않은 상태
 	t->waiting_sema = NULL;
+	sema_init(&t->exec_sema, 0);
 	list_init(&t->donations);
 	#ifdef USERPROG
 		list_init (&t->children);			// children init

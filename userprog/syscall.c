@@ -45,11 +45,9 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
-	printf("SYSCALL NUM: %d\n", f->R.rax);
 	// TODO: Your implementation goes here.
 	struct gp_registers regs=f->R;
 	int syscall_number=regs.rax;
-	//printf("syscall_number = %d\n", syscall_number);
 	uint64_t arg0=regs.rdi;
 	uint64_t arg1=regs.rsi;
 	uint64_t arg2=regs.rdx;
@@ -63,7 +61,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_EXIT:{
 			char* file_name=thread_current()->name; //rsi는 0이라 thread_current로 받아야함
 			int exit_status=(int)arg0;
-			thread_current()->exit_status = exit_status;		// child_info의 exit_status에 정보를 넣어주기. 이걸 넣어줘야 나중에 wait을 하는데 넣어줄 수가 있음.
+			thread_current()->exit_status = exit_status;
 			printf("%s: exit(%d)\n",file_name,exit_status);
 			thread_exit ();
 			break;
@@ -83,11 +81,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			}
 			break;
 		}
-		/*case SYS_EXEC:
+		case SYS_EXEC:
 		 	break;
-			*/
 		case SYS_WAIT:{
-			//printf("wait start\n");
 			tid_t tid = (tid_t)arg0;
 			int status = process_wait(tid);
 			f->R.rax = status;
@@ -145,12 +141,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_FILESIZE:
 			break;
 		case SYS_READ:
-			int fd = (int)arg0;
-			const char* buffer=(const char*)regs.rsi;
-			unsigned size = (unsigned)arg2;
-
-			// 이제 파일을 읽어서 버퍼에 읽어서 해야 함.
-			
 			break;
 		case SYS_WRITE:{
 			//printf("sys_write called\n");
