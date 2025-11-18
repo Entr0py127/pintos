@@ -156,7 +156,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					break;
 				}
 			}
-			if(file==NULL)
+
+			if(file==NULL||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
 			{
 				f->R.rax=SYS_EXIT; //exit
 				f->R.rdi=-1;
@@ -205,13 +206,17 @@ syscall_handler (struct intr_frame *f UNUSED) {
 						break;
 					}
 				}
+				if(file==NULL||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
+				{
+					f->R.rax=SYS_EXIT; //exit
+					f->R.rdi=-1;
+					syscall_handler(f);
+				}
 				int bytes_write=file_write(file,buffer,size);
 				if(bytes_write==size)
 					f->R.rax=bytes_write;
-				else if(bytes_write<size)
-					f->R.rax=-1;
 				else
-					f->R.rax=bytes_write;
+					f->R.rax=-1;
 			}
 			//return하는 rax는 실제 쓰인 바이트 수
 			break;
