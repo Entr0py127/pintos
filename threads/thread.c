@@ -340,6 +340,7 @@ thread_create (const char *name, int priority,
 	thread_unblock (t);
 	if(t->priority > thread_current()->priority)
 		thread_yield();
+	// printf("create pid = %d\n", tid);
 	return tid;
 }
 
