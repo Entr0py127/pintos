@@ -56,9 +56,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	//int arg5=regs.r9;
 	switch(syscall_number){
 		case SYS_HALT:
+		{
 			power_off();
 			break;
-		case SYS_EXIT:{
+		}
+		case SYS_EXIT:
+		{
 			char* file_name=thread_current()->name; //rsi는 0이라 thread_current로 받아야함
 			int exit_status=(int)arg0;
 			thread_current()->exit_status = exit_status;
@@ -70,15 +73,24 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			// printf("[syscall] FORK called\n");
 			char* thread_name=(char*)arg0;
 			
-			tid_t child_tid = process_fork(thread_name,f);
-
-			// wait() 필요
-			if(child_tid == TID_ERROR){
+			tid_t tid = process_fork(thread_name,f);
+			printf("FORK END\n");
+			// fork 실패
+			if(tid < 0){
+				printf("[FORK] ERROR\n");
 				f->R.rax=-1;
 			}
-			else{
-				f->R.rax = child_tid;
+			// 자식
+			else if(tid == 0){
+				printf("[FORK] CHILD\n");
+				f->R.rax = 0;
 			}
+			// 부모
+			else {
+				printf("[FORK] PARENT\n");
+				f->R.rax = tid;
+			}
+
 			break;
 		}
 		case SYS_EXEC:
@@ -107,7 +119,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		}
 		case SYS_REMOVE:
 			break;
-		case SYS_OPEN:{
+		case SYS_OPEN:
+		{
 			char* name=(char*)arg0;
 			if(name!=NULL&&is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL){
 				struct file *fo =filesys_open(name);

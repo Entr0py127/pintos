@@ -126,20 +126,24 @@ tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
 	struct fork_arg *args = palloc_get_page(PAL_ZERO);
-	if(args == NULL){
-		return TID_ERROR;
-	}
+	if(args == NULL) return TID_ERROR;
 	struct thread *curr = thread_current();
 	struct child_info *child = (struct child_info *)malloc(sizeof(struct child_info));
-
+	if (child == NULL) return TID_ERROR;
 	args->parent = curr;
 	args->parent_if = if_;
 	args->parent_pml4 = curr->pml4;
 	args->child_info = child;
+
+	/* 세마포어 초기화 */
 	sema_init(&args->sema, 0);
+
+	/* 스레드 생성 */
 	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, args);
+	printf("thread_create tid=%d\n", tid);
 
 	if(tid == TID_ERROR){
+		free(child);
 		palloc_free_page(args);
 		return TID_ERROR;
 	}
@@ -207,10 +211,12 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 static void
 __do_fork (void *aux) {
 	struct fork_arg *args = (struct fork_arg *)aux;
-	struct intr_frame if_;
+	// struct intr_frame if_;
 	struct thread *parent = args->parent;
 	struct child_info * child = args->child_info;
 	uint64_t *parent_pml4 = args->parent_pml4;
+	struct child_info *child = args->child_info;
+
     if (parent_pml4 == NULL) {
         thread_exit();
     }
@@ -218,16 +224,16 @@ __do_fork (void *aux) {
 	struct intr_frame *parent_if = args->parent_if; // 부모의 유저 컨텍스트
 	bool succ = true;
 
+	/* fd_table, stack, pml4 등 초기화 */
 	current->fd_table = palloc_get_page(PAL_ZERO);
 	// memcpy(current->fd_table, parent->fd_table, PGSIZE);
 	current->fd_count = parent->fd_count;
 	current->child_infop = child;
 	
 	/* 1. Read the cpu context to local stack. */
-	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+	memcpy (&current->tf, parent_if, sizeof (struct intr_frame)); // memcpy (&if_, parent_if, sizeof (struct intr_frame));
 
 	/* 2. Duplicate PT */
-	current->pml4 = pml4_create();
 	if (current->pml4 == NULL)
 		goto error;
 	process_activate (current);
@@ -247,8 +253,10 @@ __do_fork (void *aux) {
 		if(parent_file != NULL)
 			current->fd_table[i] = file_duplicate(parent_file);
 	}
-	if_.R.rax=0;
+	current->tf.R.rax=0; //if_.R.rax=0;
+
 	sema_up(&args->sema);
+	thread_yield();	// 자식이 실행될 기회 제공
 	process_init ();
 
 	palloc_free_page(aux);
@@ -256,7 +264,7 @@ __do_fork (void *aux) {
 	/* Finally, switch to the newly created process. */
 	if (succ)
 	{
-		do_iret (&if_);
+		do_iret (&current->tf);	// do_iret (&if_);
 	}
 error:
 	palloc_free_page(aux);
@@ -282,13 +290,16 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
-
+	
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
+	/* 로드 성공 여부 */
+	// sema_up(&thread_current()->load_sema);
+
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
-	if (!success)
+	if (!success){
 		return -1;
 
 	
@@ -307,6 +318,7 @@ process_exec (void *f_name) {
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
+
 int
 process_wait (tid_t child_tid) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
@@ -328,8 +340,46 @@ process_wait (tid_t child_tid) {
 		}
 	}
 	return -1;
-}
 
+}
+/*
+int
+process_wait (tid_t child_tid) {
+	// timer_sleep(10);
+	printf("WAIT START\n");
+    struct thread *curr = thread_current();
+    printf("WAIT: dumping children list of parent %d\n", curr->tid);
+    // 1. 자식 리스트에서 찾기
+	struct child_info *child = NULL;
+	
+	for(struct list_elem *e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)){
+		printf("child %p\n", e);
+		struct child_info *c = list_entry(e, struct child_info, child_elem);
+		if (c->tid == child_tid){
+			child = c;
+			break;
+		}
+	}
+	
+    
+    if (child == NULL){
+		printf("NOT CHILD\n");
+        return -1;  // 자식이 아님
+	}
+    
+    // 2. 자식이 종료될 때까지 대기
+    sema_down(&child->child_sema);  // 자식이 exit 시 sema_up
+    
+    // 3. 자식의 exit status 가져오기
+    int exit_status = child->exit_status;
+    
+    // 4. 자식 리소스 정리
+    list_remove(&child->child_elem);
+	free(child);
+    
+    return child_tid;
+}
+*/
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
