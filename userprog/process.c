@@ -125,32 +125,44 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
-	struct fork_arg *args = palloc_get_page(PAL_ZERO);
+	struct fork_arg *args = (struct fork_arg *)malloc(sizeof(struct fork_arg));
 	if(args == NULL){
 		return TID_ERROR;
 	}
 	struct thread *curr = thread_current();
 	struct child_info *child = (struct child_info *)malloc(sizeof(struct child_info));
+	if(child == NULL){
+		free(args);
+		return TID_ERROR;
+	}
+	
+	child->exit_status = 0;
+	child->called = 0;
+	sema_init(&child->child_sema, 0);
 
 	args->parent = curr;
 	args->parent_if = if_;
 	args->parent_pml4 = curr->pml4;
 	args->child_info = child;
 	sema_init(&args->sema, 0);
+	
+	/* Create thread - 이 시점부터 자식이 실행될 수 있음 */
 	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, args);
 
 	if(tid == TID_ERROR){
-		palloc_free_page(args);
+		free(child);
+		free(args);
 		return TID_ERROR;
 	}
 	
+	/* CRITICAL: tid 설정과 리스트 추가를 thread_create 직후에 
+	 * 자식이 종료되기 전에 완료되어야 함 */
 	child->tid = tid;
-	child->exit_status = 0;
-	child->called = 0;
-	sema_init(&child->child_sema, 0);
 	list_push_back(&curr->children, &child->child_elem);
 
+	/* 자식이 초기화를 완료할 때까지 대기 */
 	sema_down(&args->sema);
+	free(args);
 	return tid;
 }
 
@@ -211,6 +223,7 @@ __do_fork (void *aux) {
 	struct thread *parent = args->parent;
 	struct child_info * child = args->child_info;
 	uint64_t *parent_pml4 = args->parent_pml4;
+
     if (parent_pml4 == NULL) {
         thread_exit();
     }
@@ -219,7 +232,6 @@ __do_fork (void *aux) {
 	bool succ = true;
 
 	current->fd_table = palloc_get_page(PAL_ZERO);
-	// memcpy(current->fd_table, parent->fd_table, PGSIZE);
 	current->fd_count = parent->fd_count;
 	current->child_infop = child;
 	
@@ -248,20 +260,20 @@ __do_fork (void *aux) {
 			current->fd_table[i] = file_duplicate(parent_file);
 	}
 	if_.R.rax=0;
-	sema_up(&args->sema);
-	process_init ();
-
-	palloc_free_page(aux);
 	
+	sema_up(&args->sema);
+	
+	process_init ();
+	//free(aux);
 	/* Finally, switch to the newly created process. */
 	if (succ)
 	{
 		do_iret (&if_);
 	}
 error:
-	palloc_free_page(aux);
 	sema_up(&args->sema);
 	thread_exit ();
+	//free(aux);
 }
 
 /* Switch the current execution context to the f_name.
@@ -309,13 +321,11 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
-
-	for(struct list_elem *e = list_begin(&thread_current()->children); e != list_end(&thread_current()->children); e = list_next(e)){
+	for(struct list_elem *e = list_begin(&thread_current()->children); 
+	    e != list_end(&thread_current()->children); 
+	    e = list_next(e)) {
 		struct child_info *child = list_entry(e, struct child_info, child_elem);
-		if (child->tid == child_tid){
+		if (child->tid == child_tid) {
 			if (child->called != 0) {
 				return -1;
 			}
@@ -333,12 +343,14 @@ process_wait (tid_t child_tid) {
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
-	struct thread *curr = thread_current (); // 지금 종료할 쓰레드는 child이다.
+	struct thread *curr = thread_current ();
+	
 	/* TODO: Your code goes here.
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
+	// 파일 디스크립터 정리
 	while (!list_empty(&curr->fd_list)) {
         struct list_elem *e = list_pop_front(&curr->fd_list);
         struct fd *f = list_entry(e, struct fd, fd_elem);
@@ -346,10 +358,21 @@ process_exit (void) {
         free(f);
     }
 
+	/*
+	// 자식 프로세스들의 child_info 메모리 정리 (부모가 먼저 죽는 경우)
+	while (!list_empty(&curr->children)) {
+		struct list_elem *e = list_pop_front(&curr->children);
+		struct child_info *child = list_entry(e, struct child_info, child_elem);
+		free(child);
+	}*/
+
+	// 부모에게 종료 상태 전달
 	if(curr->child_infop != NULL) {
 		curr->child_infop->exit_status = curr->exit_status;
 		sema_up(&curr->child_infop->child_sema);
 	}
+	
+	process_cleanup (); 
 }
 
 /* Free the current process's resources. */
@@ -705,7 +728,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* Add the page to the process's address space. */
 		if (!install_page (upage, kpage, writable)) {
-			printf("fail\n");
 			palloc_free_page (kpage);
 			return false;
 		}
