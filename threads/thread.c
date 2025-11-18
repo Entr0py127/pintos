@@ -128,15 +128,15 @@ thread_init (void) {
 	};
 	lgdt (&gdt_ds);
 
-	load_avg = 0;			//load_avg의 초기화 값: 0	
+	load_avg = 0;
 
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
-	// sleep_list 초기화
 	list_init (&sleep_list);
 	list_init (&all_threads_list);
+
 
 	// mlfqs를 위한 priority별 ready_list 초기화 (PRI_MIN부터 PRI_MAX까지)
 	for (int i = PRI_MIN; i <= PRI_MAX; i++){
@@ -324,6 +324,13 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+
+	/* fd_table 생성 */
+	t->fd_table = palloc_get_page(PAL_ZERO);
+	t->fd_count = 2;
+	// 파일이 없기 때문에 특수 처리
+	t->fd_table[0] = NULL;   // stdin
+	t->fd_table[1] = NULL;   // stdout
 
 	enum intr_level old_level = intr_disable();
     list_push_back(&all_threads_list, &t->all_threads_list_elem);
@@ -543,7 +550,6 @@ thread_get_nice (void) {
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
-	struct thread *t = thread_current();
 	int64_t x = FP_MUL_INT(load_avg, 100);
 	if(x >= 0) {
 		return (x + ((int64_t)1 << (FP_SHIFT-1))) >> FP_SHIFT;
@@ -641,8 +647,16 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 
 	t->waiting_lock = NULL; // 락을 가르키는 포인터. 아무 락도 기다리고 있지 않은 상태
 	t->waiting_sema = NULL;
+	sema_init(&t->exec_sema, 0);
 	list_init(&t->donations);
+	#ifdef USERPROG
+		list_init (&t->children);			// children init
+		t->child_infop = NULL;				// NULL	로 초기화를 시켜줌
+		list_init(&t->fd_list);
+		t->fd_num = 2;		// 초기값 2로 설정, 0&1은 STDIN, STDOUT
+	#endif
 }
+
 
 /* Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
