@@ -254,7 +254,7 @@ __do_fork (void *aux) {
 	/* 파일 디스크립터 복제 */
 	for(struct list_elem *e = list_begin(&parent->fd_table); e != list_end(&parent->fd_table); e = list_next(e)){
 		struct fd *parent_fd = list_entry(e, struct fd, fd_elem);
-		struct fd *child_fd = (struct fd *)(sizeof(struct fd));
+		struct fd *child_fd = (struct fd *)malloc(sizeof(struct fd));
 
 		if(parent_fd != NULL){
 			child_fd->file = file_duplicate(parent_fd->file);
