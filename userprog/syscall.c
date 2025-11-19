@@ -163,7 +163,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				f->R.rdi=-1;
 				syscall_handler(f);
 			}
-			if(fd==0){
+			else if(fd==0){
 				for(int i=0;i<size;i++)
 				{
 					memcpy((char*)buffer,(char*)input_getc(),sizeof(char));
