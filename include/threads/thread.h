@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -105,7 +106,7 @@ struct child_info {
 	int exit_status;
 	int called;
 	struct list_elem child_elem;
-	struct semaphore *child_sema;
+	struct semaphore child_sema;
 };
 
 struct fd {
@@ -125,7 +126,8 @@ struct thread {
 	int64_t recent_cpu;			// thread별 cpu차지 시간 초기값 0. 고정소수점(fixed-point)
 	int nice;				// thread별 nice 값 초기는 0
 	struct lock *waiting_lock; // 현재 대기중인 lock
-	struct semaphore *waiting_sema;  
+	struct semaphore *waiting_sema;
+	struct semaphore exec_sema;
 	struct list donations;
 	struct list_elem donation_elem;
 	
@@ -140,14 +142,14 @@ struct thread {
 	struct list children;				// 직계 자식들에 관한 리스트
 	struct child_info *child_infop;		// 부모쪽의 child_info를 가르키도록 하는 포인터 변수. 이걸 이용해서 sema_up를 실행.
 	int exit_status;					// 만약 child_info안에 있다가 부모가 없어지면 애를 들고올 방법이 없음.
-	struct list fd_list;
-	int fd_num;							// 전체 fd 숫자
+	
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
-
+	struct list fd_table;
+	int fd_count;							// 전체 fd 숫자
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
@@ -160,8 +162,6 @@ extern bool thread_mlfqs;
 
 void thread_init (void);
 void thread_start (void);
-
-void init_child(tid_t t_id, int stauts, int init_call);
 
 void thread_tick (void);
 void thread_print_stats (void);

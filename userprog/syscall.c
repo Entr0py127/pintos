@@ -11,6 +11,7 @@
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
 #include "filesys/file.h"
+#include "userprog/process.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -47,7 +48,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 	struct gp_registers regs=f->R;
 	int syscall_number=regs.rax;
-	//printf("syscall_number = %d\n", syscall_number);
 	uint64_t arg0=regs.rdi;
 	uint64_t arg1=regs.rsi;
 	uint64_t arg2=regs.rdx;
@@ -61,19 +61,32 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_EXIT:{
 			char* file_name=thread_current()->name; //rsi는 0이라 thread_current로 받아야함
 			int exit_status=(int)arg0;
-			// thread_current()->exit_status = exit_status;		// child_info의 exit_status에 정보를 넣어주기. 이걸 넣어줘야 나중에 wait을 하는데 넣어줄 수가 있음.
+			thread_current()->exit_status = exit_status;
 			printf("%s: exit(%d)\n",file_name,exit_status);
 			thread_exit ();
 			break;
+		}
+		case SYS_FORK:{
+			// printf("[syscall] FORK called\n");
+			char* thread_name=(char*)arg0;
+			
+			tid_t child_tid = process_fork(thread_name,f);
+
+			// wait() 필요
+			if(child_tid == TID_ERROR){
+				f->R.rax=-1;
 			}
-		case SYS_FORK:
+			else{
+				f->R.rax = child_tid;
+			}
 			break;
+		}
 		case SYS_EXEC:
-			break;
+		 	break;
 		case SYS_WAIT:{
-			// tid_t tid = (tid_t)arg0;
-			// int status = process_wait(tid);
-			// f->R.rax = status;
+			tid_t tid = (tid_t)arg0;
+			int status = process_wait(tid);
+			f->R.rax = status;
 			break;
 		}
 		case SYS_CREATE:{
@@ -109,8 +122,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 						break;
 					}
 					fd->file = fo;
-					list_push_back(&t->fd_list, &fd->fd_elem);
-					fd->cur_fd = ++t->fd_num;
+					list_push_back(&t->fd_table, &fd->fd_elem);
+					fd->cur_fd = ++t->fd_count;
 					f->R.rax=fd->cur_fd;
 				}
 				else
@@ -128,8 +141,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_FILESIZE:{
 			int fd = (int)arg0;
 			struct file *file=NULL;
-			struct list *fd_list = &thread_current()->fd_list;
-			for(struct list_elem *e = list_begin(fd_list); e != list_end(fd_list); e = list_next(e)){
+			struct list *fd_table = &thread_current()->fd_table;
+			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 				struct fd *temp= list_entry(e, struct fd, fd_elem);
 				if (temp->cur_fd == fd) {
 					file = temp->file;
@@ -140,23 +153,21 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			//printf("filesize: %d\n",filesize);
 			f->R.rax=filesize;
 			break;
-
 		}
 
 		case SYS_READ:{
 			int fd = (int)arg0;
-			char* buffer=(char*)arg1;
+			void* buffer=(void*)arg1;
 			off_t size = (off_t)arg2;
 			struct file *file=NULL;
-			struct list *fd_list = &thread_current()->fd_list;
-			for(struct list_elem *e = list_begin(fd_list); e != list_end(fd_list); e = list_next(e)){
+			struct list *fd_table = &thread_current()->fd_table;
+			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 				struct fd *temp= list_entry(e, struct fd, fd_elem);
 				if (temp->cur_fd == fd) {
 					file = temp->file;
 					break;
 				}
 			}
-
 			if(file==NULL||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
 			{
 				f->R.rax=SYS_EXIT; //exit
@@ -166,7 +177,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			else if(fd==0){
 				for(int i=0;i<size;i++)
 				{
-					memcpy((char*)buffer,(char*)input_getc(),sizeof(char));
+					memcpy(buffer,(void*)input_getc(),sizeof(char));
 					buffer+=sizeof(char);
 				}
 				f->R.rax=size;
@@ -198,8 +209,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			}*/
 			else{
 				struct file *file=NULL;
-				struct list *fd_list = &thread_current()->fd_list;
-				for(struct list_elem *e = list_begin(fd_list); e != list_end(fd_list); e = list_next(e)){
+				struct list *fd_table = &thread_current()->fd_table;
+				for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 					struct fd *temp= list_entry(e, struct fd, fd_elem);
 					if (temp->cur_fd == fd) {
 						file = temp->file;
@@ -230,7 +241,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			if (fd < 2) {
 				break;
 			}
-			for(struct list_elem *e = list_begin(&thread_current()->fd_list); e != list_end(&thread_current()->fd_list); e = list_next(e)){
+			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
 				struct fd *FD= list_entry(e, struct fd, fd_elem);
 				if (FD->cur_fd == fd) {
 					file_close(FD->file);

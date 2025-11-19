@@ -56,6 +56,10 @@ file_duplicate (struct file *file) {
 void
 file_close (struct file *file) {
 	if (file != NULL) {
+		while(file->reading>0||file->writing>0)
+		{
+			thread_yield();
+		}
 		file_allow_write (file);
 		inode_close (file->inode);
 		free (file);
