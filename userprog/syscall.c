@@ -264,8 +264,33 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 			
-		/*case SYS_TELL:
-			break;*/
+		case SYS_TELL:
+		{
+			/* 파일의 위치 바이트 단위로 반환 */
+			int fd = (int)arg0;
+			if (fd < 2) {
+				break;
+			}
+			struct file *file = NULL;
+			// 1. fd 파일 찾기
+			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
+				struct fd *FD= list_entry(e, struct fd, fd_elem);
+				if (FD->cur_fd == fd) {
+					file = FD->file;
+					break;
+				}
+			}
+			// fd에 해당되는 파일이 없음
+			if(file == NULL){
+				f->R.rax = 0;
+				break;
+			}
+			// 2. 파일 위치 반환
+			unsigned pos = (unsigned)file_tell(file);
+			f->R.rax = pos;
+
+			break;
+		}
 		case SYS_CLOSE:{
 			int fd = (int)arg0;
 			if (fd < 2) {
