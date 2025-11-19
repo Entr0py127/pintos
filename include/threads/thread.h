@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -100,6 +101,20 @@ typedef int64_t fixed_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+struct child_info {
+	tid_t tid;
+	int exit_status;
+	int called;
+	struct list_elem child_elem;
+	struct semaphore child_sema;
+};
+
+struct fd {
+	struct file *file;
+	struct list_elem fd_elem;
+	int cur_fd;						// 지금 이 파일이 가지고 있는 fd의 숫자
+};
+
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
@@ -111,7 +126,8 @@ struct thread {
 	int64_t recent_cpu;			// thread별 cpu차지 시간 초기값 0. 고정소수점(fixed-point)
 	int nice;				// thread별 nice 값 초기는 0
 	struct lock *waiting_lock; // 현재 대기중인 lock
-	struct semaphore *waiting_sema;  
+	struct semaphore *waiting_sema;
+	struct semaphore exec_sema;
 	struct list donations;
 	struct list_elem donation_elem;
 	
@@ -123,12 +139,17 @@ struct thread {
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	struct list children;				// 직계 자식들에 관한 리스트
+	struct child_info *child_infop;		// 부모쪽의 child_info를 가르키도록 하는 포인터 변수. 이걸 이용해서 sema_up를 실행.
+	int exit_status;					// 만약 child_info안에 있다가 부모가 없어지면 애를 들고올 방법이 없음.
+	
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
-
+	struct list fd_table;
+	int fd_count;							// 전체 fd 숫자
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
