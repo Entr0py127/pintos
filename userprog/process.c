@@ -480,9 +480,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	off_t file_ofs;
 	bool success = false;
 	int i;
-	
-	char *argv[128];
-	char *temp=palloc_get_page(0);
+
+	const int max_args = 128;
+	char **argv = malloc (sizeof *argv * max_args);
+	uint64_t *argv_addrs = malloc (sizeof *argv_addrs * max_args);
+	char *temp = palloc_get_page (0);
+	if (argv == NULL || argv_addrs == NULL || temp == NULL)
+		goto done;
+	memset (argv, 0, sizeof *argv * max_args);
+	memset (argv_addrs, 0, sizeof *argv_addrs * max_args);
 	strlcpy(temp,file_name,PGSIZE);
 	char *save_ptr;
 	int argc=0;
@@ -490,13 +496,16 @@ load (const char *file_name, struct intr_frame *if_) {
 	//printf("arg[%d]: %s\n",argc,argv[argc]);
 	while (argv[argc] != NULL) {
     	argc++;
+		if (argc >= max_args)
+			goto done;
     	argv[argc] = strtok_r(NULL, " ", &save_ptr);
 		//printf("arg[%d]: %s\n",argc,argv[argc]);
 	}
 	file_name=argv[0];
+	//printf("%s\n", file_name);
+	// 이걸 안 하면 args에서 file_name이 제대로 안 나옴. 근데 이걸 하면 exec에서 file_name이 제대로 안 나옴.
 	int length_of_file_name=strlen(file_name)>15?15:strlen(file_name);
 	strlcpy(t->name, file_name, length_of_file_name+1);
-	//printf("file name changed!: %s\n",file_name);
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -586,7 +595,6 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 	uint64_t stack_ptr = if_->rsp;
-	uint64_t argv_addrs[128]; // 문자열 주소
 
 	for(int i=argc-1;i>=0;i--){ //argv 저장
 		int string_len = strlen(argv[i]) + 1; //'\0' 포함
@@ -618,13 +626,23 @@ load (const char *file_name, struct intr_frame *if_) {
 	
 	if(temp!=NULL)
 		palloc_free_page(temp);
-	
+	temp = NULL;
+	free(argv);
+	free(argv_addrs);
+	argv = NULL;
+	argv_addrs = NULL;
 	success = true;
 
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	//printf("load out\n");
+	if (temp != NULL)
+		palloc_free_page (temp);
+	free(argv);
+	free(argv_addrs);
+	if (file != NULL)
+		file_close (file);
 	sema_up(&thread_current()->exec_sema);
 	return success;
 }
