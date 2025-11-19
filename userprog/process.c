@@ -86,8 +86,14 @@ process_create_initd (const char *file_name) {
 	aux->file_name = fn_copy;
 	aux->info = child;
 
+	char *temp = (char *)palloc_get_page(PAL_ZERO);
+	strlcpy(temp, (char *)file_name, strlen(file_name)+ 1);
+	char *save_ptr;
+	char *token = strtok_r(temp, " ", &save_ptr);
+
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, aux);
+	tid = thread_create (token, PRI_DEFAULT, initd, aux);
+	palloc_free_page (temp);
 
 	if (tid == TID_ERROR){
 		free(child);
@@ -296,6 +302,16 @@ process_exec (void *f_name) {
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
+	// char *temp = (char *)palloc_get_page(PAL_ZERO);
+	// strlcpy(temp, (char *)f_name, strlen(f_name) + 1);
+	// // printf("[process_exec] temp original name: %s\n", temp);
+	// char *save_ptr;
+	// char *token = strtok_r(temp, " ", &save_ptr);
+	// // printf("[process_exec] token name: %s\n", token);
+	// int length_of_file_name=strlen(token)>15?15:strlen(token);
+	// strlcpy (thread_current()->name, token, length_of_file_name + 1);
+	// palloc_free_page (temp);
+
 	/* We first kill the current context */
 	process_cleanup ();
 
@@ -502,10 +518,6 @@ load (const char *file_name, struct intr_frame *if_) {
 		//printf("arg[%d]: %s\n",argc,argv[argc]);
 	}
 	file_name=argv[0];
-	//printf("%s\n", file_name);
-	// 이걸 안 하면 args에서 file_name이 제대로 안 나옴. 근데 이걸 하면 exec에서 file_name이 제대로 안 나옴.
-	int length_of_file_name=strlen(file_name)>15?15:strlen(file_name);
-	strlcpy(t->name, file_name, length_of_file_name+1);
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();

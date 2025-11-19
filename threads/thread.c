@@ -628,7 +628,6 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 	t->original_priority = priority;
 	t->priority = priority;
 	t->wake_tick = wakeup_time;
-	// 둘다 초기값은 0으로 설정.
 	t->recent_cpu = 0;
 	if(t != initial_thread) {
 		t->nice = thread_current()->nice;
