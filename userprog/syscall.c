@@ -122,8 +122,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 						break;
 					}
 					fd->file = fo;
-					list_push_back(&t->fd_list, &fd->fd_elem);
-					fd->cur_fd = ++t->fd_num;
+					list_push_back(&t->fd_table, &fd->fd_elem);
+					fd->cur_fd = ++t->fd_count;
 					f->R.rax=fd->cur_fd;
 				}
 				else
@@ -172,7 +172,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			if (fd < 2) {
 				break;
 			}
-			for(struct list_elem *e = list_begin(&thread_current()->fd_list); e != list_end(&thread_current()->fd_list); e = list_next(e)){
+			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
 				struct fd *FD= list_entry(e, struct fd, fd_elem);
 				if (FD->cur_fd == fd) {
 					file_close(FD->file);

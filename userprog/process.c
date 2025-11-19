@@ -231,7 +231,6 @@ __do_fork (void *aux) {
 	struct intr_frame *parent_if = args->parent_if; // 부모의 유저 컨텍스트
 	bool succ = true;
 
-	current->fd_table = palloc_get_page(PAL_ZERO);
 	current->fd_count = parent->fd_count;
 	current->child_infop = child;
 	
@@ -253,12 +252,17 @@ __do_fork (void *aux) {
 	}
 #endif
 	/* 파일 디스크립터 복제 */
-	for(int i = 0; i < parent->fd_count; i++){
-		struct file *parent_file = parent->fd_table[i];
+	for(struct list_elem *e = list_begin(&parent->fd_table); e != list_end(&parent->fd_table); e = list_next(e)){
+		struct fd *parent_fd = list_entry(e, struct fd, fd_elem);
+		struct fd *child_fd = (struct fd *)malloc(sizeof(struct fd));
 
-		if(parent_file != NULL)
-			current->fd_table[i] = file_duplicate(parent_file);
+		if(parent_fd != NULL){
+			child_fd->file = file_duplicate(parent_fd->file);
+			child_fd->cur_fd = parent_fd->cur_fd;
+			list_push_back(&current->fd_table, &child_fd->fd_elem);
+		}
 	}
+	
 	if_.R.rax=0;
 	
 	sema_up(&args->sema);
@@ -351,20 +355,12 @@ process_exit (void) {
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
 	// 파일 디스크립터 정리
-	while (!list_empty(&curr->fd_list)) {
-        struct list_elem *e = list_pop_front(&curr->fd_list);
+	while (!list_empty(&curr->fd_table)) {
+        struct list_elem *e = list_pop_front(&curr->fd_table);
         struct fd *f = list_entry(e, struct fd, fd_elem);
         file_close(f->file);
         free(f);
     }
-
-	/*
-	// 자식 프로세스들의 child_info 메모리 정리 (부모가 먼저 죽는 경우)
-	while (!list_empty(&curr->children)) {
-		struct list_elem *e = list_pop_front(&curr->children);
-		struct child_info *child = list_entry(e, struct child_info, child_elem);
-		free(child);
-	}*/
 
 	// 부모에게 종료 상태 전달
 	if(curr->child_infop != NULL) {
