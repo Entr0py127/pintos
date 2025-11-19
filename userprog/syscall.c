@@ -82,6 +82,20 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 		case SYS_EXEC:
+			const char * f_name = (const char *)arg0;
+			if(f_name!=NULL&&is_user_vaddr(f_name)&&pml4_get_page(thread_current()->pml4,f_name)!=NULL) {
+				int return_status = process_exec(f_name);
+				if(return_status == -1) {
+					f->R.rax=SYS_EXIT; //exit
+					f->R.rdi=-1;
+					syscall_handler(f);
+				}
+			}
+			else{
+				f->R.rax=SYS_EXIT; //exit
+				f->R.rdi=-1;
+				syscall_handler(f);
+			}
 		 	break;
 		case SYS_WAIT:{
 			tid_t tid = (tid_t)arg0;
@@ -123,7 +137,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					}
 					fd->file = fo;
 					list_push_back(&t->fd_table, &fd->fd_elem);
-					fd->cur_fd = ++t->fd_count;
+					fd->cur_fd = t->fd_count++;
 					f->R.rax=fd->cur_fd;
 				}
 				else
