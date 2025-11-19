@@ -142,17 +142,14 @@ struct thread {
 	struct list children;				// 직계 자식들에 관한 리스트
 	struct child_info *child_infop;		// 부모쪽의 child_info를 가르키도록 하는 포인터 변수. 이걸 이용해서 sema_up를 실행.
 	int exit_status;					// 만약 child_info안에 있다가 부모가 없어지면 애를 들고올 방법이 없음.
-	struct list fd_list;
-	int fd_num;							// 전체 fd 숫자
+	
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
-	/* struct intr_frame *parent_if;*/
-	struct file **fd_table;  // 이 스레드만의 파일 디스크립터 테이블
-	int fd_count;
-
+	struct list fd_table;
+	int fd_count;							// 전체 fd 숫자
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */

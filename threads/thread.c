@@ -325,13 +325,6 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
-	/* fd_table 생성 */
-	t->fd_table = palloc_get_page(PAL_ZERO);
-	t->fd_count = 2;
-	// 파일이 없기 때문에 특수 처리
-	t->fd_table[0] = NULL;   // stdin
-	t->fd_table[1] = NULL;   // stdout
-
 	enum intr_level old_level = intr_disable();
     list_push_back(&all_threads_list, &t->all_threads_list_elem);
     intr_set_level(old_level);
@@ -649,11 +642,12 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 	t->waiting_sema = NULL;
 	sema_init(&t->exec_sema, 0);
 	list_init(&t->donations);
+	list_init(&t->fd_table);
+	t->fd_count = 2;		// 초기값 2로 설정, 0&1은 STDIN, STDOUT
 	#ifdef USERPROG
 		list_init (&t->children);			// children init
 		t->child_infop = NULL;				// NULL	로 초기화를 시켜줌
-		list_init(&t->fd_list);
-		t->fd_num = 2;		// 초기값 2로 설정, 0&1은 STDIN, STDOUT
+
 	#endif
 }
 
