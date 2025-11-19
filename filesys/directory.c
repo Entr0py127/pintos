@@ -5,6 +5,8 @@
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "threads/thread.h"
+#include "filesys/file.h"
 
 /* A directory. */
 struct dir {
@@ -192,6 +194,23 @@ dir_remove (struct dir *dir, const char *name) {
 	/* Remove inode. */
 	inode_remove (inode);
 	success = true;
+
+	/* fd 삭제 */
+	/* inode_remove() 이후와 inode_close() 이전에 fd->file->inode.removed 가 죽었다면 fd를 죽여야함 */
+	struct thread *current = thread_current();
+	for(struct list_elem *e = list_begin(&current->fd_table); e != list_end(&current->fd_table); e = list_next(e)){
+		struct fd *current_fd = list_entry(e, struct fd, fd_elem);
+
+		struct inode *get_inode = file_get_inode(&current_fd->file);
+		bool removed = inode_is_removed(get_inode);
+		// inode가 죽었다면 fd도 free
+		if(get_inode != NULL && removed){
+			/* 1. fd_table에서 삭제 */
+			list_remove(&current_fd->fd_elem);
+			/* 2. fd free */
+			free(current_fd);
+		}
+	}
 
 done:
 	inode_close (inode);

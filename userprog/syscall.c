@@ -106,7 +106,24 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 		case SYS_REMOVE:
+		{
+			/* 파일 삭제 성공 시 true 그렇지 않다면 false */
+			char* name=(char*)arg0;
+			/* 이름에 해당하는 fd 가져오기
+				어떻게 가져오지? name을 가지고 있는것은 dir_entry에 name이 들어감
+				inode에 removed라는 필드가 있음
+				removed는 dir_remove()의 inode_remove에서 true를 시켜줌
+				그 후 inode_close를 하는데 이것은 free(inode)하는 것
+				즉, inode_remove() 이후와 inode_close() 이전에 fd->file->inode.removed 가 죽었다면 fd를 죽여야함
+				이것은 여기서 하면 안되고 dir_remove() 안에서 하는 것이 맞는듯
+			*/
+
+			if(name!=NULL && is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL){
+				/* file 삭제 */
+				f->R.rax = filesys_remove(name);
+			}
 			break;
+		}
 		case SYS_OPEN:{
 			char* name=(char*)arg0;
 			if(name!=NULL&&is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL){
