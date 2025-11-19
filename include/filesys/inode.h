@@ -6,7 +6,6 @@
 #include "devices/disk.h"
 
 struct bitmap;
-struct inode;
 
 void inode_init (void);
 bool inode_create (disk_sector_t, off_t);
@@ -20,6 +19,5 @@ off_t inode_write_at (struct inode *, const void *, off_t size, off_t offset);
 void inode_deny_write (struct inode *);
 void inode_allow_write (struct inode *);
 off_t inode_length (const struct inode *);
-bool inode_is_removed(struct inode *);
 
 #endif /* filesys/inode.h */
