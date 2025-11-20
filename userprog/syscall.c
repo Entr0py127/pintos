@@ -46,12 +46,14 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	//printf("handler called! rax: %d, rdi: %d\n", f->R.rax, f->R.rdi);
 	struct gp_registers regs=f->R;
 	int syscall_number=regs.rax;
 	uint64_t arg0=regs.rdi;
 	uint64_t arg1=regs.rsi;
-	uint64_t arg2=regs.rdx;5=regs.r9;
+	uint64_t arg2=regs.rdx;
+	//int arg3=regs.r10;
+	//int arg4=regs.r8;
+	//int arg5=regs.r9;
 	switch(syscall_number){
 		case SYS_HALT:
 			power_off();
@@ -82,7 +84,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_EXEC:
 			const char * f_name = (const char *)arg0;
 			if(f_name!=NULL&&is_user_vaddr(f_name)&&pml4_get_page(thread_current()->pml4,f_name)!=NULL) {
-				int return_status = process_exec(f_name); //exec (child_simple)
+				int return_status = process_exec(f_name);
 				if(return_status == -1) {
 					f->R.rax=SYS_EXIT; //exit
 					f->R.rdi=-1;
@@ -118,7 +120,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 		case SYS_REMOVE:
+		{
+			/* 파일 삭제 성공 시 true 그렇지 않다면 false */
+			char* name=(char*)arg0;
+			if(name!=NULL && is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL){
+				/* file 삭제 */
+				f->R.rax = filesys_remove(name);
+			}
 			break;
+		}
 		case SYS_OPEN:{
 			char* name=(char*)arg0;
 			if(name!=NULL&&is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL){
@@ -173,7 +183,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			off_t size = (off_t)arg2;
 			struct file *file=NULL;
 			struct list *fd_table = &thread_current()->fd_table;
-			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){ //fd to file
+			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 				struct fd *temp= list_entry(e, struct fd, fd_elem);
 				if (temp->cur_fd == fd) {
 					file = temp->file;
@@ -208,30 +218,100 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		//printf("starting write\n");
 
 		//printf("sys_write: fd=%llu, buffer=%p, size=%zu\n", fd, buffer, size);
-	buf((const char*)buffer, (size_t)size);
+			if(fd==STDOUT_FILENO){
+				putbuf((const char*)buffer, (size_t)size);
 				f->R.rax=size;
 			}
 			
-			else if(fd==STDIN_FI=NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
+			else if(fd==STDIN_FILENO){
+				f->R.rax=-1;
+			}/*
+			else if(arg0==-1){
+				//f->R.rax=-1;
+			}*/
+			else{
+				struct file *file=NULL;
+				struct list *fd_table = &thread_current()->fd_table;
+				for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
+					struct fd *temp= list_entry(e, struct fd, fd_elem);
+					if (temp->cur_fd == fd) {
+						file = temp->file;
+						break;
+					}
+				}
+				if(file==NULL||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
 				{
 					f->R.rax=SYS_EXIT; //exit
 					f->R.rdi=-1;
 					syscall_handler(f);
 				}
-				int bytes_write=file_write(file,buffer,ssize)
-					f->R.rax=byte;
-
-				putbuf((const char*)buffer, (size_t)size);
-			//return하는size;YS_SEEK:
+				int bytes_write=file_write(file,buffer,size);
+				if(bytes_write==size)
+					f->R.rax=bytes_write;
+				else
+					f->R.rax=-1;
+			}
+			//return하는 rax는 실제 쓰인 바이트 수
 			break;
+		}
+		case SYS_SEEK:
+		{
+			int fd = (int)arg0;
+			unsigned new_pos = (unsigned)arg1;
+			struct file *file = NULL;
+			/* 현재 fd를 가진 파일의 pos 바꾸기 */
+			// 1. fd 파일 찾기
+			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
+				struct fd *FD= list_entry(e, struct fd, fd_elem);
+				if (FD->cur_fd == fd) {
+					file = FD->file;
+					break;
+				}
+			}
+			// fd에 해당되는 파일이 없음
+			if(file == NULL){
+				break;
+			}
+			// 2. 해당 fd 파일의 pos 바꾸기(file_seek())
+			file_seek(file, new_pos);
+
+			break;
+		}
+			
 		case SYS_TELL:
-			break;*/
+		{
+			/* 파일의 위치 바이트 단위로 반환 */
+			int fd = (int)arg0;
+			if (fd < 2) {
+				break;
+			}
+			struct file *file = NULL;
+			// 1. fd 파일 찾기
+			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
+				struct fd *FD= list_entry(e, struct fd, fd_elem);
+				if (FD->cur_fd == fd) {
+					file = FD->file;
+					break;
+				}
+			}
+			// fd에 해당되는 파일이 없음
+			if(file == NULL){
+				f->R.rax = 0;
+				break;
+			}
+			// 2. 파일 위치 반환
+			unsigned pos = (unsigned)file_tell(file);
+			f->R.rax = pos;
+
+			break;
+		}
 		case SYS_CLOSE:{
 			int fd = (int)arg0;
 			if (fd < 2) {
 				break;
 			}
-			for(struct list_elem *e =			struct fd *FD= list_entry(e, struct fd, fd_elem);
+			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
+				struct fd *FD= list_entry(e, struct fd, fd_elem);
 				if (FD->cur_fd == fd) {
 					file_close(FD->file);
 					list_remove(e);
@@ -244,7 +324,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		/*case SYS_MMAP:
 			break;
 		case SYS_MUNMAP:
-			breR				if(file==NULL) SYS_MKDIR:
+			break;
+		case SYS_CHDIR:
+			break;
+		case SYS_MKDIR:
 			break;
 		case SYS_READDIR:
 			break;
