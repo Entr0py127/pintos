@@ -12,6 +12,8 @@
 #include "threads/mmu.h"
 #include "filesys/file.h"
 #include "userprog/process.h"
+#include "filesys/inode.h"
+#include "include/lib/stdio.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -150,7 +152,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				}
 				else
 					f->R.rax=-1;
-				}
+			}
 			// 이름이 정상적이지 않거나 하면 exit으로. 재귀 수정 나중에 수정
 			else
 				{
@@ -212,12 +214,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		}
 		case SYS_WRITE:{
 			//printf("sys_write called\n");
-		uint64_t fd=regs.rdi;
-		const char* buffer=(const char*)regs.rsi;
-		size_t size=(size_t)regs.rdx;
-		//printf("starting write\n");
+			uint64_t fd=regs.rdi;
+			const char* buffer=(const char*)regs.rsi;
+			size_t size=(size_t)regs.rdx;
+			//printf("starting write\n");
 
-		//printf("sys_write: fd=%llu, buffer=%p, size=%zu\n", fd, buffer, size);
+			//printf("sys_write: fd=%llu, buffer=%p, size=%zu\n", fd, buffer, size);
 			if(fd==STDOUT_FILENO){
 				putbuf((const char*)buffer, (size_t)size);
 				f->R.rax=size;
@@ -249,7 +251,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				if(bytes_write==size)
 					f->R.rax=bytes_write;
 				else
-					f->R.rax=-1;
+					f->R.rax=0;
 			}
 			//return하는 rax는 실제 쓰인 바이트 수
 			break;
@@ -321,6 +323,59 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			}
 			break;
 		}
+		/*
+		* 기존 파일 디스크립터 oldfd를 복제해서, newfd 번호로 새로 할당.
+		* 성공 시: newfd 반환
+		* 표준 입출력 닫기 지원(원래는 닫는 것이 금지되어 있지만 한번 해보기)
+		* stdin을 닫으면 이후 프로그램은 입력을 더 이상 읽을 수 없어야 한다.
+		* (즉, read() 호출 시 입력이 오지 않음)
+		* `stdout`을 닫으면 이후 프로그램은 아무 것도 출력하지 않아야 한다.
+		*/
+		case SYS_DUP2:
+		{
+			int oldfd = (int)arg0;
+			int newfd = (int)arg1;
+			/* oldfd가 유효하지 않다면 실패 반환 */
+			if(oldfd != NULL && is_user_vaddr(oldfd)){
+				f->R.rax = -1;
+				break;
+			}
+			/* oldfd == newfd라면 */
+			if(oldfd == newfd){
+				f->R.rax = newfd;
+				break;
+			}
+			/* newfd가 이미 열려있다면 재사용 inode_open이용 */
+			// 1. oldfd를 가진 fd 찾기
+			struct fd *oldFD = NULL;
+			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
+				struct fd *FD = list_entry(e, struct fd, fd_elem);
+				if (FD->cur_fd == oldfd) {
+					oldFD = FD;
+					break;
+				}
+			}
+			// 2. newfd를 가진 fd 찾기
+			struct fd *newFD = NULL;
+			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
+				struct fd *FD= list_entry(e, struct fd, fd_elem);
+				if (FD->cur_fd == newfd) {
+					newFD = FD;
+					break;
+				}
+			}
+			// 3. newfd가 이미 열려있다면
+			if(newFD != NULL){
+				// 재사용 : oldFD가 가르키는 파일을 newFD가 가르키는 파일로 변경
+				oldFD->file = newFD->file;
+				// open_cnt가 0이면 자동으로 지워줌
+				inode_close(file_get_inode(newFD->file));
+
+				f->R.rax = newfd;
+			}
+
+			break;
+		}
 		/*case SYS_MMAP:
 			break;
 		case SYS_MUNMAP:
@@ -336,8 +391,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_INUMBER:
 			break;
 		case SYS_SYMLINK:
-			break;
-		case SYS_DUP2:
 			break;
 		case SYS_MOUNT:
 			break;

@@ -266,8 +266,10 @@ __do_fork (void *aux) {
 			child_fd->file = file_duplicate(parent_fd->file);
 			child_fd->cur_fd = parent_fd->cur_fd;
 			list_push_back(&current->fd_table, &child_fd->fd_elem);
+			printf("[FORK FD table] child_fd->file %p, child_fd->cur_fd %d\n", child_fd->file, child_fd->cur_fd);
 		}
 	}
+
 	
 	if_.R.rax=0;
 	
@@ -314,6 +316,11 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
+
+	/* 실행 파일에 대한 Deny Write */
+	struct file *file = filesys_open(file_name);
+	if(file == NULL) printf("WHY NULL\n");
+	file_deny_write(file);
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
