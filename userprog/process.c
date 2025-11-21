@@ -239,7 +239,7 @@ __do_fork (void *aux) {
 
 	current->fd_count = parent->fd_count;
 	current->child_infop = child;
-	
+	current->running_file=parent->running_file;
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
 
@@ -383,7 +383,8 @@ process_exit (void) {
 		curr->child_infop->exit_status = curr->exit_status;
 		sema_up(&curr->child_infop->child_sema);
 	}
-	
+	if(curr->running_file!=NULL)
+		file_allow_write(curr->running_file);
 	process_cleanup (); 
 }
 
@@ -653,9 +654,10 @@ done:
 		palloc_free_page (temp);
 	free(argv);
 	free(argv_addrs);
-	if (file != NULL)
-		file_close (file);
 	sema_up(&thread_current()->exec_sema);
+	if (file != NULL)
+		file_deny_write(file);
+	t->running_file = file;
 	return success;
 }
 
