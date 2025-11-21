@@ -62,7 +62,7 @@ file_close (struct file *file) {
 		}
 		file_allow_write (file);
 		inode_close (file->inode);
-		free (file);
+		// free (file);
 	}
 }
 
@@ -80,24 +80,21 @@ file_get_inode (struct file *file) {
 off_t
 file_read (struct file *file, void *buffer, off_t size) {
 	bool reopened = false;
-	while(file->writing>0||file->reading>0||file->deny_write)
+	if(file->deny_write)
+		return 0;
+	else if(file->writing==0&&file->reading>0)
 	{
-		if(file->deny_write)
-			thread_yield();
-		else if(file->writing==0&&file->reading>0)
-		{
-			reopened=true;
-			file=file_reopen(file);
-			break;
-		}
-		else if(file->writing>0&&file->reading==0)
-		{
-			thread_yield();
-		}
+		reopened=true;
+		file=file_reopen(file);
 	}
-	file->reading++;          
+	else if(file->writing>0&&file->reading==0)
+	{
+		return 0;
+	}
+	file->reading++;
 	off_t bytes_read = inode_read_at (file->inode, buffer, size, file->pos);
 	file->pos += bytes_read;
+	// file_allow_write(file);
 	file->reading--;
 	if(reopened)
 		free(file);
@@ -123,9 +120,10 @@ file_read_at (struct file *file, void *buffer, off_t size, off_t file_ofs) {
  * Advances FILE's position by the number of bytes read. */
 off_t
 file_write (struct file *file, const void *buffer, off_t size) {
-	while(file->reading>0||file->writing>0||file->deny_write)
+	if(file->reading>0||file->writing>0||file->deny_write)
 	{
-		thread_yield();
+		// 그냥 무시됨
+		return 0;
 	}
 	file->writing++;
 	off_t bytes_written = inode_write_at (file->inode, buffer, size, file->pos);
