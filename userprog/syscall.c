@@ -145,9 +145,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 						f->R.rax = -1;
 						break;
 					}
-					fd->file = fo;
+					fd->file = file_duplicate(fo);
 					list_push_back(&t->fd_table, &fd->fd_elem);
 					fd->cur_fd = t->fd_count++;
+					fd->type = 2;
 					f->R.rax=fd->cur_fd;
 				}
 				else
@@ -183,14 +184,29 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			int fd = (int)arg0;
 			void* buffer=(void*)arg1;
 			off_t size = (off_t)arg2;
+			int file_stdin = 0;
 			struct file *file=NULL;
 			struct list *fd_table = &thread_current()->fd_table;
 			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 				struct fd *temp= list_entry(e, struct fd, fd_elem);
+				if (temp->type == STDIN_FILENO){
+					printf("fd: %d, temp->type: %d\n", fd, temp->type);
+					for(int i=0;i<size;i++)
+					{
+						memcpy(buffer,(void*)input_getc(),sizeof(char));
+						buffer+=sizeof(char);
+					}
+					f->R.rax=size;
+					file_stdin = 1;
+					break;
+				}
 				if (temp->cur_fd == fd) {
 					file = temp->file;
 					break;
 				}
+			}
+			if (file_stdin){
+				break;
 			}
 			if((file==NULL&&fd!=0)||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
 			{
@@ -217,6 +233,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			uint64_t fd=regs.rdi;
 			const char* buffer=(const char*)regs.rsi;
 			size_t size=(size_t)regs.rdx;
+			int file_stdout = 0;
 			//printf("starting write\n");
 
 			//printf("sys_write: fd=%llu, buffer=%p, size=%zu\n", fd, buffer, size);
@@ -236,10 +253,21 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				struct list *fd_table = &thread_current()->fd_table;
 				for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 					struct fd *temp= list_entry(e, struct fd, fd_elem);
+					printf("fd: %d, temp->type: %d\n", fd, temp->type);
 					if (temp->cur_fd == fd) {
+						printf("if (temp->cur_fd == fd) enter\n");
 						file = temp->file;
+						if (temp->type == STDOUT_FILENO){
+							printf("enter in stdout\n");
+							putbuf((const char*)buffer, (size_t)size);
+							f->R.rax=size;
+							file_stdout = 1;
+						}
 						break;
 					}
+				}
+				if(file_stdout) {
+					break;
 				}
 				if(file==NULL||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
 				{
@@ -336,7 +364,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
             int oldfd = (int)arg0;
             int newfd = (int)arg1;
             /* oldfd가 유효하지 않다면 실패 반환 */
-            if(oldfd < 0 || newfd < 0){ //todo
+			printf("oldfd: %d, newfd: %d.\n", oldfd, newfd);
+            if(oldfd < 0 || newfd < 0){
                 f->R.rax = -1;
                 break;
             }
@@ -364,16 +393,51 @@ syscall_handler (struct intr_frame *f UNUSED) {
                     break;
                 }
             }
+			if (oldfd >= 2) {
+				if(oldFD == NULL || oldFD->file == NULL){
+					f->R.rax = -1;
+					break;
+				}
+			}
+				
             if(newFD != NULL){
-                file_close(newFD->file);
-                newFD->file = oldFD->file;
-                f->R.rax = newFD;
+				file_close(newFD->file);
+				if(oldfd == 0){
+					newFD->type = STDIN_FILENO;
+					newFD->file = NULL;
+				}
+				if(oldfd == 1){
+					newFD->type = STDOUT_FILENO;
+					newFD->file = NULL;
+				}
+				if(oldfd > 1){
+					newFD->file = oldFD->file;
+					newFD->type = oldFD->type;
+				}
+				printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
+                f->R.rax = newfd;
             }
             else {
-                struct fd *new_fd = (struct fd *)malloc(sizeof(struct fd));
-                new_fd->file = oldFD->file;
-                new_fd->cur_fd = newfd;
-                list_push_back(&thread_current()->fd_table, &new_fd->fd_elem);
+                newFD = (struct fd *)malloc(sizeof(struct fd));
+				if (newFD == NULL) {
+					f->R.rax = -1;
+					break;
+				}
+				if(oldfd > 1){
+					newFD->file = oldFD->file;
+					newFD->type = oldFD->type;
+				}
+				if(oldfd == 0){
+					newFD->type = STDIN_FILENO;
+					newFD->file = NULL;
+				}
+				else if(oldfd == 1){
+					newFD->type = STDOUT_FILENO;
+					newFD->file = NULL;
+				}
+                newFD->cur_fd = newfd;
+				printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
+                list_push_back(&thread_current()->fd_table, &newFD->fd_elem);
                 f->R.rax = newfd;
             }
             break;
