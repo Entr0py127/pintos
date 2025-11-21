@@ -69,7 +69,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 		case SYS_FORK:{
-			// printf("[syscall] FORK called\n");
+			//printf("[syscall] FORK called\n");
 			char* thread_name=(char*)arg0;
 			
 			tid_t child_tid = process_fork(thread_name,f);
@@ -190,7 +190,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 				struct fd *temp= list_entry(e, struct fd, fd_elem);
 				if (temp->type == STDIN_FILENO){
-					printf("fd: %d, temp->type: %d\n", fd, temp->type);
 					for(int i=0;i<size;i++)
 					{
 						memcpy(buffer,(void*)input_getc(),sizeof(char));
@@ -225,11 +224,49 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			else {
 				int bytes_read=file_read(file,buffer,size);
 				f->R.rax=bytes_read;
+				printf("read %d bytes from file descriptor %d\n", bytes_read, fd);
 			}
 			break;
 		}
 		case SYS_WRITE:{
-			//printf("sys_write called\n");
+			uint64_t fd=regs.rdi;
+			const char* buffer=(const char*)regs.rsi;
+			size_t size=(size_t)regs.rdx;
+			int file_stdout = 0;
+
+			struct file *file=NULL;
+			struct list *fd_table = &thread_current()->fd_table;
+			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
+				struct fd *temp= list_entry(e, struct fd, fd_elem);
+				if(temp->cur_fd == fd){
+					file=temp->file;
+					break;
+				}
+			}
+
+			if(file==NULL){
+					putbuf((const char*)buffer, (size_t)size);
+					f->R.rax=size;
+					file_stdout = 1;
+				}
+			else if(fd==STDIN_FILENO){
+				f->R.rax=-1;
+			}
+			else if(file!=NULL){
+				int bytes_write=file_write(file,buffer,size);
+				if(bytes_write==size)
+					f->R.rax=bytes_write;
+				else
+					f->R.rax=0;
+			} //file == NULL
+			else if(buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
+				{
+					f->R.rax=SYS_EXIT; //exit
+					f->R.rdi=-1;
+					syscall_handler(f);
+				}
+			break;
+			/*
 			uint64_t fd=regs.rdi;
 			const char* buffer=(const char*)regs.rsi;
 			size_t size=(size_t)regs.rdx;
@@ -244,21 +281,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 			else if(fd==STDIN_FILENO){
 				f->R.rax=-1;
-			}/*
-			else if(arg0==-1){
-				//f->R.rax=-1;
-			}*/
+			}
 			else{
 				struct file *file=NULL;
 				struct list *fd_table = &thread_current()->fd_table;
 				for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 					struct fd *temp= list_entry(e, struct fd, fd_elem);
-					printf("fd: %d, temp->type: %d\n", fd, temp->type);
 					if (temp->cur_fd == fd) {
-						printf("if (temp->cur_fd == fd) enter\n");
 						file = temp->file;
 						if (temp->type == STDOUT_FILENO){
-							printf("enter in stdout\n");
 							putbuf((const char*)buffer, (size_t)size);
 							f->R.rax=size;
 							file_stdout = 1;
@@ -282,7 +313,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					f->R.rax=0;
 			}
 			//return하는 rax는 실제 쓰인 바이트 수
-			break;
+			break;*/
 		}
 		case SYS_SEEK:
 		{
@@ -414,7 +445,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					newFD->file = oldFD->file;
 					newFD->type = oldFD->type;
 				}
-				printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
+				//printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
                 f->R.rax = newfd;
             }
             else {
@@ -436,7 +467,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					newFD->file = NULL;
 				}
                 newFD->cur_fd = newfd;
-				printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
+				//printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
                 list_push_back(&thread_current()->fd_table, &newFD->fd_elem);
                 f->R.rax = newfd;
             }
