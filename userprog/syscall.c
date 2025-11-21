@@ -192,7 +192,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					break;
 				}
 			}
-			if(file==NULL||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
+			if((file==NULL&&fd!=0)||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
 			{
 				f->R.rax=SYS_EXIT; //exit
 				f->R.rdi=-1;
@@ -224,7 +224,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				putbuf((const char*)buffer, (size_t)size);
 				f->R.rax=size;
 			}
-			
+
 			else if(fd==STDIN_FILENO){
 				f->R.rax=-1;
 			}/*
@@ -309,9 +309,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		}
 		case SYS_CLOSE:{
 			int fd = (int)arg0;
-			if (fd < 2) {
+			/*if (fd < 2) {
 				break;
-			}
+			}*/
 			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
 				struct fd *FD= list_entry(e, struct fd, fd_elem);
 				if (FD->cur_fd == fd) {
@@ -332,50 +332,52 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		* `stdout`을 닫으면 이후 프로그램은 아무 것도 출력하지 않아야 한다.
 		*/
 		case SYS_DUP2:
-		{
-			int oldfd = (int)arg0;
-			int newfd = (int)arg1;
-			/* oldfd가 유효하지 않다면 실패 반환 */
-			if(oldfd != NULL && is_user_vaddr(oldfd)){
-				f->R.rax = -1;
-				break;
-			}
-			/* oldfd == newfd라면 */
-			if(oldfd == newfd){
-				f->R.rax = newfd;
-				break;
-			}
-			/* newfd가 이미 열려있다면 재사용 inode_open이용 */
-			// 1. oldfd를 가진 fd 찾기
-			struct fd *oldFD = NULL;
-			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
-				struct fd *FD = list_entry(e, struct fd, fd_elem);
-				if (FD->cur_fd == oldfd) {
-					oldFD = FD;
-					break;
-				}
-			}
-			// 2. newfd를 가진 fd 찾기
-			struct fd *newFD = NULL;
-			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
-				struct fd *FD= list_entry(e, struct fd, fd_elem);
-				if (FD->cur_fd == newfd) {
-					newFD = FD;
-					break;
-				}
-			}
-			// 3. newfd가 이미 열려있다면
-			if(newFD != NULL){
-				// 재사용 : oldFD가 가르키는 파일을 newFD가 가르키는 파일로 변경
-				oldFD->file = newFD->file;
-				// open_cnt가 0이면 자동으로 지워줌
-				inode_close(file_get_inode(newFD->file));
-
-				f->R.rax = newfd;
-			}
-
-			break;
-		}
+        {
+            int oldfd = (int)arg0;
+            int newfd = (int)arg1;
+            /* oldfd가 유효하지 않다면 실패 반환 */
+            if(oldfd < 0 || newfd < 0){ //todo
+                f->R.rax = -1;
+                break;
+            }
+            /* oldfd == newfd라면 */
+            if(oldfd == newfd){
+                f->R.rax = newfd;
+                break;
+            }
+            /* newfd가 이미 열려있다면 재사용 inode_open이용 */
+            // 1. oldfd를 가진 fd 찾기
+            struct fd *oldFD = NULL;
+            for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
+                struct fd *FD = list_entry(e, struct fd, fd_elem);
+                if (FD->cur_fd == oldfd) {
+                    oldFD = FD;
+                    break;
+                }
+            }
+            // 2. newfd를 가진 fd 찾기
+            struct fd *newFD = NULL;
+            for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
+                struct fd *FD= list_entry(e, struct fd, fd_elem);
+                if (FD->cur_fd == newfd) {
+                    newFD = FD;
+                    break;
+                }
+            }
+            if(newFD != NULL){
+                file_close(newFD->file);
+                newFD->file = oldFD->file;
+                f->R.rax = newFD;
+            }
+            else {
+                struct fd *new_fd = (struct fd *)malloc(sizeof(struct fd));
+                new_fd->file = oldFD->file;
+                new_fd->cur_fd = newfd;
+                list_push_back(&thread_current()->fd_table, &new_fd->fd_elem);
+                f->R.rax = newfd;
+            }
+            break;
+        }
 		/*case SYS_MMAP:
 			break;
 		case SYS_MUNMAP:
