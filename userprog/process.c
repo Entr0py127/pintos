@@ -258,16 +258,17 @@ __do_fork (void *aux) {
 	}
 #endif
 	/* 파일 디스크립터 복제 */
-	for(struct list_elem *e = list_begin(&parent->fd_table); e != list_end(&parent->fd_table); e = list_next(e)){
-		struct fd *parent_fd = list_entry(e, struct fd, fd_elem);
-		struct fd *child_fd = (struct fd *)malloc(sizeof(struct fd));
+		for(struct list_elem *e = list_begin(&parent->fd_table); e != list_end(&parent->fd_table); e = list_next(e)){
+			struct fd *parent_fd = list_entry(e, struct fd, fd_elem);
+			struct fd *child_fd = (struct fd *)malloc(sizeof(struct fd));
 
-		if(parent_fd != NULL){
-			child_fd->file = file_duplicate(parent_fd->file);
-			child_fd->cur_fd = parent_fd->cur_fd;
-			list_push_back(&current->fd_table, &child_fd->fd_elem);
+			if(parent_fd != NULL){
+				child_fd->file = parent_fd->file != NULL ? file_duplicate(parent_fd->file) : NULL;
+				child_fd->type = parent_fd->type;
+				child_fd->cur_fd = parent_fd->cur_fd;
+				list_push_back(&current->fd_table, &child_fd->fd_elem);
+			}
 		}
-	}
 	
 	if_.R.rax=0;
 	
