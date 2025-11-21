@@ -264,7 +264,7 @@ __do_fork (void *aux) {
 
 		if(parent_fd != NULL){
 			if(parent_fd->file != NULL){
-				child_fd->file = parent_fd->file;  // 같은 file 구조체 공유
+				child_fd->file = file_duplicate(parent_fd->file);
 			}
 			else {
 				child_fd->file = NULL;
