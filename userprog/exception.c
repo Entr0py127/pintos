@@ -85,9 +85,11 @@ kill (struct intr_frame *f) {
 			   expected.  Kill the user process.  */
 			printf ("%s: dying due to interrupt %#04llx (%s).\n",
 					thread_name (), f->vec_no, intr_name (f->vec_no));
-			intr_dump_frame (f);
-			thread_exit ();
-
+			//intr_dump_frame (f);
+			f->R.rax =1;
+			f->R.rdi=-1;
+			syscall_handler(f);
+			break;
 		case SEL_KCSEG:
 			/* Kernel's code segment, which indicates a kernel bug.
 			   Kernel code shouldn't throw exceptions.  (Page faults
@@ -95,13 +97,16 @@ kill (struct intr_frame *f) {
 			   here.)  Panic the kernel to make the point.  */
 			intr_dump_frame (f);
 			PANIC ("Kernel bug - unexpected interrupt in kernel");
-
+			break;
 		default:
 			/* Some other code segment?  Shouldn't happen.  Panic the
 			   kernel. */
 			printf ("Interrupt %#04llx (%s) in unknown segment %04x\n",
 					f->vec_no, intr_name (f->vec_no), f->cs);
-			thread_exit ();
+			f->R.rax =1;
+			f->R.rdi=-1;
+			syscall_handler(f);
+			break;
 	}
 }
 

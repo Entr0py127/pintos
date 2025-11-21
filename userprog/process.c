@@ -86,8 +86,14 @@ process_create_initd (const char *file_name) {
 	aux->file_name = fn_copy;
 	aux->info = child;
 
+	char *temp = (char *)palloc_get_page(PAL_ZERO);
+	strlcpy(temp, (char *)file_name, strlen(file_name)+ 1);
+	char *save_ptr;
+	char *token = strtok_r(temp, " ", &save_ptr);
+
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, aux);
+	tid = thread_create (token, PRI_DEFAULT, initd, aux);
+	palloc_free_page (temp);
 
 	if (tid == TID_ERROR){
 		free(child);
@@ -233,7 +239,7 @@ __do_fork (void *aux) {
 
 	current->fd_count = parent->fd_count;
 	current->child_infop = child;
-	
+	current->running_file=parent->running_file;
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
 
@@ -296,7 +302,17 @@ process_exec (void *f_name) {
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
-	/* We first kill the current context */
+	// char *temp = (char *)palloc_get_page(PAL_ZERO);
+	// strlcpy(temp, (char *)f_name, strlen(f_name) + 1);
+	// // printf("[process_exec] temp original name: %s\n", temp);
+	// char *save_ptr;
+	// char *token = strtok_r(temp, " ", &save_ptr);
+	// // printf("[process_exec] token name: %s\n", token);
+	// int length_of_file_name=strlen(token)>15?15:strlen(token);
+	// strlcpy (thread_current()->name, token, length_of_file_name + 1);
+	// palloc_free_page (temp);
+
+	/* We first kill the current context */ 
 	process_cleanup ();
 
 	/* And then load the binary */
@@ -367,7 +383,8 @@ process_exit (void) {
 		curr->child_infop->exit_status = curr->exit_status;
 		sema_up(&curr->child_infop->child_sema);
 	}
-	
+	if(curr->running_file!=NULL)
+		file_allow_write(curr->running_file);
 	process_cleanup (); 
 }
 
@@ -480,9 +497,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	off_t file_ofs;
 	bool success = false;
 	int i;
-	
-	char *argv[128];
-	char *temp=palloc_get_page(0);
+
+	const int max_args = 128;
+	char **argv = malloc (sizeof *argv * max_args);
+	uint64_t *argv_addrs = malloc (sizeof *argv_addrs * max_args);
+	char *temp = palloc_get_page (0);
+	if (argv == NULL || argv_addrs == NULL || temp == NULL)
+		goto done;
+	memset (argv, 0, sizeof *argv * max_args);
+	memset (argv_addrs, 0, sizeof *argv_addrs * max_args);
 	strlcpy(temp,file_name,PGSIZE);
 	char *save_ptr;
 	int argc=0;
@@ -490,13 +513,12 @@ load (const char *file_name, struct intr_frame *if_) {
 	//printf("arg[%d]: %s\n",argc,argv[argc]);
 	while (argv[argc] != NULL) {
     	argc++;
+		if (argc >= max_args)
+			goto done;
     	argv[argc] = strtok_r(NULL, " ", &save_ptr);
 		//printf("arg[%d]: %s\n",argc,argv[argc]);
 	}
 	file_name=argv[0];
-	int length_of_file_name=strlen(file_name)>15?15:strlen(file_name);
-	strlcpy(t->name, file_name, length_of_file_name+1);
-	//printf("file name changed!: %s\n",file_name);
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -586,7 +608,6 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 	uint64_t stack_ptr = if_->rsp;
-	uint64_t argv_addrs[128]; // 문자열 주소
 
 	for(int i=argc-1;i>=0;i--){ //argv 저장
 		int string_len = strlen(argv[i]) + 1; //'\0' 포함
@@ -618,14 +639,25 @@ load (const char *file_name, struct intr_frame *if_) {
 	
 	if(temp!=NULL)
 		palloc_free_page(temp);
-	
+	temp = NULL;
+	free(argv);
+	free(argv_addrs);
+	argv = NULL;
+	argv_addrs = NULL;
 	success = true;
 
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	//printf("load out\n");
+	if (temp != NULL)
+		palloc_free_page (temp);
+	free(argv);
+	free(argv_addrs);
 	sema_up(&thread_current()->exec_sema);
+	if (file != NULL)
+		file_deny_write(file);
+	t->running_file = file;
 	return success;
 }
 
