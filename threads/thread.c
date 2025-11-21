@@ -329,6 +329,14 @@ thread_create (const char *name, int priority,
     list_push_back(&all_threads_list, &t->all_threads_list_elem);
     intr_set_level(old_level);
 
+	for(int i = 0; i<2; i++){
+		struct fd *temp = (struct fd *)malloc(sizeof(struct fd));
+		temp->file = NULL;
+		temp->cur_fd = i;
+		temp->type = i;
+		list_push_back(&t->fd_table, &temp->fd_elem);
+	}
+
 	/* Add to run queue. */
 	thread_unblock (t);
 	if(t->priority > thread_current()->priority)
