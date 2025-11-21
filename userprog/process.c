@@ -239,7 +239,7 @@ __do_fork (void *aux) {
 
 	current->fd_count = parent->fd_count;
 	current->child_infop = child;
-	
+	current->running_file=parent->running_file;
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
 
@@ -266,10 +266,8 @@ __do_fork (void *aux) {
 			child_fd->file = file_duplicate(parent_fd->file);
 			child_fd->cur_fd = parent_fd->cur_fd;
 			list_push_back(&current->fd_table, &child_fd->fd_elem);
-			printf("[FORK FD table] child_fd->file %p, child_fd->cur_fd %d\n", child_fd->file, child_fd->cur_fd);
 		}
 	}
-
 	
 	if_.R.rax=0;
 	
@@ -314,13 +312,8 @@ process_exec (void *f_name) {
 	// strlcpy (thread_current()->name, token, length_of_file_name + 1);
 	// palloc_free_page (temp);
 
-	/* We first kill the current context */
+	/* We first kill the current context */ 
 	process_cleanup ();
-
-	/* 실행 파일에 대한 Deny Write */
-	struct file *file = filesys_open(file_name);
-	if(file == NULL) printf("WHY NULL\n");
-	file_deny_write(file);
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
@@ -390,7 +383,8 @@ process_exit (void) {
 		curr->child_infop->exit_status = curr->exit_status;
 		sema_up(&curr->child_infop->child_sema);
 	}
-	
+	if(curr->running_file!=NULL)
+		file_allow_write(curr->running_file);
 	process_cleanup (); 
 }
 
@@ -660,9 +654,10 @@ done:
 		palloc_free_page (temp);
 	free(argv);
 	free(argv_addrs);
-	if (file != NULL)
-		file_close (file);
 	sema_up(&thread_current()->exec_sema);
+	if (file != NULL)
+		file_deny_write(file);
+	t->running_file = file;
 	return success;
 }
 
