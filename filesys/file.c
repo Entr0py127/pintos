@@ -58,7 +58,7 @@ file_close (struct file *file) {
 				thread_yield();
 			}
 		inode_close (file->inode);
-		//free (file);
+		// free (file);
 	}
 }
 

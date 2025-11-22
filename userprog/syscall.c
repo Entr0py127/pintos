@@ -184,15 +184,22 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			int fd = (int)arg0;
 			void* buffer=(void*)arg1;
 			off_t size = (off_t)arg2;
+			if(buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0){
+				f->R.rax=SYS_EXIT; //exit
+				f->R.rdi=-1;
+				syscall_handler(f);
+			}
 			struct file *file=NULL;
+			struct fd *temp=NULL;
 			struct list *fd_table = &thread_current()->fd_table;
 			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
-				struct fd *temp= list_entry(e, struct fd, fd_elem);
+				temp= list_entry(e, struct fd, fd_elem);
 				if (temp->cur_fd == fd) {
 					file = temp->file;
 					break;
 				}
 			}
+			/*
 			if(fd==1||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0){
 				f->R.rax=SYS_EXIT; //exit
 				f->R.rdi=-1;
@@ -209,6 +216,27 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			else{
 				int bytes_read=file_read(file,buffer,size);
 				f->R.rax=bytes_read;
+			}*/
+			if(file == NULL){
+				if(fd == STDIN_FILENO || (temp != NULL && temp->type == STDIN_FILENO)){
+					for(int i=0;i<size;i++){
+						memcpy(buffer,(void*)input_getc(),sizeof(char));
+						buffer+=sizeof(char);
+					}
+					f->R.rax=size;
+				}
+				else{
+					f->R.rax=SYS_EXIT; //exit
+					f->R.rdi=-1;
+					syscall_handler(f);
+				}
+				
+			}
+			else{
+				if(fd > 2 || temp->type == 2){
+					int bytes_read=file_read(file,buffer,size);
+					f->R.rax=bytes_read;
+				}
 			}
 			break;
 		}
@@ -216,7 +244,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			uint64_t fd=regs.rdi;
 			const char* buffer=(const char*)regs.rsi;
 			size_t size=(size_t)regs.rdx;
-			int file_stdout = 0;
+			if(buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
+			{
+				f->R.rax=SYS_EXIT; //exit
+				f->R.rdi=-1;
+				syscall_handler(f);
+			}
 			struct fd *temp=NULL;
 			struct file *file=NULL;
 			struct list *fd_table = &thread_current()->fd_table;
@@ -227,14 +260,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					break;
 				}
 			}
-			if(buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
-				{
-					f->R.rax=SYS_EXIT; //exit
-					f->R.rdi=-1;
-					syscall_handler(f);
-				}
-
-			else if(fd==STDIN_FILENO){
+			/*
+			if(fd==STDIN_FILENO){
 				f->R.rax=SYS_EXIT;
 				f->R.rdi=-1;
 				syscall_handler(f);
@@ -254,6 +281,26 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					f->R.rax=SYS_EXIT;
 					f->R.rdi=-1;
 					syscall_handler(f);
+				}
+			}*/
+			if(file == NULL){
+				if(fd == STDOUT_FILENO || (temp != NULL && temp->type == STDOUT_FILENO)){
+					putbuf((const char*)buffer, (size_t)size);
+					f->R.rax=size;
+				}
+				else{
+					f->R.rax=SYS_EXIT; //exit
+					f->R.rdi=-1;
+					syscall_handler(f);
+				}
+			}
+			else{
+				if(fd > 2 || temp->type == 2){
+					int bytes_write=file_write(file,buffer,size);
+					if(bytes_write==size)
+						f->R.rax=bytes_write;
+					else
+						f->R.rax=0;
 				}
 			}
 			break;
