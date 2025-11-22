@@ -36,6 +36,7 @@ struct fork_arg {
 	uint64_t *parent_pml4;
 	struct child_info *child_info;
 	struct semaphore sema;
+	bool success;
 };
 
 struct initd_arg{
@@ -150,6 +151,7 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	args->parent_if = if_;
 	args->parent_pml4 = curr->pml4;
 	args->child_info = child;
+	args->success = false; 
 	sema_init(&args->sema, 0);
 	
 	/* Create thread - 이 시점부터 자식이 실행될 수 있음 */
@@ -166,8 +168,15 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	child->tid = tid;
 	list_push_back(&curr->children, &child->child_elem);
 
-	/* 자식이 초기화를 완료할 때까지 대기 */
 	sema_down(&args->sema);
+	
+	if (!args->success) {
+		list_remove(&child->child_elem);
+		free(child);
+		free(args);
+		return TID_ERROR;
+	}
+	
 	free(args);
 	return tid;
 }
@@ -261,7 +270,9 @@ __do_fork (void *aux) {
 	for(struct list_elem *e = list_begin(&parent->fd_table); e != list_end(&parent->fd_table); e = list_next(e)){
 		struct fd *parent_fd = list_entry(e, struct fd, fd_elem);
 		struct fd *child_fd = (struct fd *)malloc(sizeof(struct fd));
-
+		if(child_fd == NULL){
+			goto error;
+		}
 		if(parent_fd != NULL){
 			if(parent_fd->file != NULL){
 				child_fd->file = file_duplicate(parent_fd->file);
@@ -277,7 +288,7 @@ __do_fork (void *aux) {
 	}
 	
 	if_.R.rax=0;
-	
+	args->success = true;  
 	sema_up(&args->sema);
 	
 	process_init ();
@@ -288,9 +299,10 @@ __do_fork (void *aux) {
 		do_iret (&if_);
 	}
 error:
+	args->success = false;
 	sema_up(&args->sema);
+	current->child_infop=NULL;
 	thread_exit ();
-	//free(aux);
 }
 
 /* Switch the current execution context to the f_name.
@@ -381,15 +393,25 @@ process_exit (void) {
 	while (!list_empty(&curr->fd_table)) {
         struct list_elem *e = list_pop_front(&curr->fd_table);
         struct fd *f = list_entry(e, struct fd, fd_elem);
-        file_close(f->file);
+		if (f->file != NULL) {
+			ref_count_down(f->file);
+			if (file_ref_cnt(f->file) == 0) {
+				file_close(f->file);
+			}
+		}
         free(f);
     }
-
+	while (!list_empty(&curr->children)) {
+		struct list_elem *e = list_pop_front(&curr->children);
+		struct child_info *child = list_entry(e, struct child_info, child_elem);
+		free(child);
+	}
 	// 부모에게 종료 상태 전달
 	if(curr->child_infop != NULL) {
 		curr->child_infop->exit_status = curr->exit_status;
 		sema_up(&curr->child_infop->child_sema);
 	}
+	
 	if(curr->running_file!=NULL)
 		file_allow_write(curr->running_file);
 	process_cleanup (); 
