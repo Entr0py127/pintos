@@ -364,9 +364,26 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
 				struct fd *FD= list_entry(e, struct fd, fd_elem);
 				if (FD->cur_fd == fd) {
-					file_close(FD->file);
+					if (FD->cur_fd == 0 || FD->cur_fd == 1){
+						if (FD->cur_fd == 0 ){
+							FD->file = NULL;
+							FD->type = 0;
+						}
+						else if (FD->cur_fd == 1 ){
+							FD->file = NULL;
+							FD->type = 1;
+						}
+					}
+					else{
+						if(FD->file!=NULL){
+							ref_count_down(FD->file);
+							if (file_ref_cnt(FD->file) == 0){
+								file_close(FD->file);
+							}
+						}
 					list_remove(e);
 					free(FD);
+					}
 					break;
 				}
 			}
@@ -415,14 +432,19 @@ syscall_handler (struct intr_frame *f UNUSED) {
                 }
             }
 			if (oldfd >= 2) {
-				if(oldFD == NULL || oldFD->file == NULL){
+				if(oldFD == NULL || (oldFD->file == NULL&&oldFD->type == 2)){
 					f->R.rax = -1;
 					break;
 				}
 			}
 				
-            if(newFD != NULL){
-				file_close(newFD->file);
+	            if(newFD != NULL){
+				if (newFD->file != NULL){
+					ref_count_down(newFD->file);
+					if (file_ref_cnt(newFD->file) == 0){
+						file_close(newFD->file);
+					}
+				}
 				if(oldfd == 0){
 					newFD->type = STDIN_FILENO;
 					newFD->file = NULL;
@@ -433,6 +455,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				}
 				if(oldfd > 1){
 					newFD->file = oldFD->file;
+					ref_count_up(newFD->file);
 					newFD->type = oldFD->type;
 				}
 				//printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
@@ -446,6 +469,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				}
 				if(oldfd > 1){
 					newFD->file = oldFD->file;
+					ref_count_up(newFD->file);
 					newFD->type = oldFD->type;
 				}
 				if(oldfd == 0){

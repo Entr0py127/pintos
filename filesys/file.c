@@ -2,12 +2,14 @@
 #include <debug.h>
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "threads/thread.h"
 /* An open file. */
 struct file {
 	struct inode *inode;        /* File's inode. */
 	off_t pos;                  /* Current position. */
 	bool deny_write;            /* Has file_deny_write() been called? */
 	int reading;
+	int ref_cnt;
 };
 
 /* Opens a file for the given INODE, of which it takes ownership,
@@ -21,6 +23,7 @@ file_open (struct inode *inode) {
 		file->pos = 0;
 		file->deny_write = false;
 		file->reading=0;
+		file->ref_cnt = 1;
 		return file;
 	} else {
 		inode_close (inode);
@@ -53,12 +56,12 @@ file_duplicate (struct file *file) {
 void
 file_close (struct file *file) {
 	if (file != NULL) {
-		while(file->reading>0&&file->reading<=10)
+		while(file->reading>0)
 			{	
 				thread_yield();
 			}
 		inode_close (file->inode);
-		// free (file);
+		free (file);
 	}
 }
 
@@ -167,4 +170,23 @@ off_t
 file_tell (struct file *file) {
 	ASSERT (file != NULL);
 	return file->pos;
+}
+
+int
+file_ref_cnt(struct file *file) {
+	return file->ref_cnt;
+}
+
+void
+ref_count_down(struct file *file) {
+	if(file != NULL){
+		file->ref_cnt--;
+	}
+}
+
+void
+ref_count_up(struct file *file) {
+	if(file != NULL){
+		file->ref_cnt++;
+	}
 }
