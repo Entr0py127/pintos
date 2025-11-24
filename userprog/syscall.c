@@ -69,7 +69,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 		case SYS_FORK:{
-			// printf("[syscall] FORK called\n");
+			//printf("[syscall] FORK called\n");
 			char* thread_name=(char*)arg0;
 			
 			tid_t child_tid = process_fork(thread_name,f);
@@ -145,9 +145,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 						f->R.rax = -1;
 						break;
 					}
-					fd->file = fo;
+					fd->file = file_duplicate(fo);
 					list_push_back(&t->fd_table, &fd->fd_elem);
 					fd->cur_fd = t->fd_count++;
+					fd->type = 2;
 					f->R.rax=fd->cur_fd;
 				}
 				else
@@ -183,77 +184,125 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			int fd = (int)arg0;
 			void* buffer=(void*)arg1;
 			off_t size = (off_t)arg2;
+			if(buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0){
+				f->R.rax=SYS_EXIT; //exit
+				f->R.rdi=-1;
+				syscall_handler(f);
+			}
 			struct file *file=NULL;
+			struct fd *temp=NULL;
 			struct list *fd_table = &thread_current()->fd_table;
 			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
-				struct fd *temp= list_entry(e, struct fd, fd_elem);
+				temp= list_entry(e, struct fd, fd_elem);
 				if (temp->cur_fd == fd) {
 					file = temp->file;
 					break;
 				}
 			}
-			if((file==NULL&&fd!=0)||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
-			{
+			/*
+			if(fd==1||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0){
 				f->R.rax=SYS_EXIT; //exit
 				f->R.rdi=-1;
 				syscall_handler(f);
-			}
-			else if(fd==0){
-				for(int i=0;i<size;i++)
-				{
+			} //fd==0 or 2
+
+			if(file==NULL){
+				for(int i=0;i<size;i++){
 					memcpy(buffer,(void*)input_getc(),sizeof(char));
 					buffer+=sizeof(char);
 				}
 				f->R.rax=size;
 			}
-			else {
+			else{
 				int bytes_read=file_read(file,buffer,size);
 				f->R.rax=bytes_read;
-			}
-			break;
-		}
-		case SYS_WRITE:{
-			//printf("sys_write called\n");
-			uint64_t fd=regs.rdi;
-			const char* buffer=(const char*)regs.rsi;
-			size_t size=(size_t)regs.rdx;
-			//printf("starting write\n");
-
-			//printf("sys_write: fd=%llu, buffer=%p, size=%zu\n", fd, buffer, size);
-			if(fd==STDOUT_FILENO){
-				putbuf((const char*)buffer, (size_t)size);
-				f->R.rax=size;
-			}
-
-			else if(fd==STDIN_FILENO){
-				f->R.rax=-1;
-			}/*
-			else if(arg0==-1){
-				//f->R.rax=-1;
 			}*/
-			else{
-				struct file *file=NULL;
-				struct list *fd_table = &thread_current()->fd_table;
-				for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
-					struct fd *temp= list_entry(e, struct fd, fd_elem);
-					if (temp->cur_fd == fd) {
-						file = temp->file;
-						break;
+			if(file == NULL){
+				if(fd == STDIN_FILENO || (temp != NULL && temp->type == STDIN_FILENO)){
+					for(int i=0;i<size;i++){
+						memcpy(buffer,(void*)input_getc(),sizeof(char));
+						buffer+=sizeof(char);
 					}
+					f->R.rax=size;
 				}
-				if(file==NULL||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
-				{
+				else{
 					f->R.rax=SYS_EXIT; //exit
 					f->R.rdi=-1;
 					syscall_handler(f);
 				}
+				
+			}
+			else{
+				if(fd > 2 || temp->type == 2){
+					int bytes_read=file_read(file,buffer,size);
+					f->R.rax=bytes_read;
+				}
+			}
+			break;
+		}
+		case SYS_WRITE:{
+			uint64_t fd=regs.rdi;
+			const char* buffer=(const char*)regs.rsi;
+			size_t size=(size_t)regs.rdx;
+			if(buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
+			{
+				f->R.rax=SYS_EXIT; //exit
+				f->R.rdi=-1;
+				syscall_handler(f);
+			}
+			struct fd *temp=NULL;
+			struct file *file=NULL;
+			struct list *fd_table = &thread_current()->fd_table;
+			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
+				temp= list_entry(e, struct fd, fd_elem);
+				if(temp->cur_fd == fd){
+					file=temp->file;
+					break;
+				}
+			}
+			/*
+			if(fd==STDIN_FILENO){
+				f->R.rax=SYS_EXIT;
+				f->R.rdi=-1;
+				syscall_handler(f);
+			}
+			else if(file!=NULL){
 				int bytes_write=file_write(file,buffer,size);
 				if(bytes_write==size)
 					f->R.rax=bytes_write;
 				else
 					f->R.rax=0;
 			}
-			//return하는 rax는 실제 쓰인 바이트 수
+			else if(file==NULL){
+				if(fd==STDOUT_FILENO||temp->type==STDOUT_FILENO)
+					{putbuf((const char*)buffer, (size_t)size);
+					f->R.rax=size;}
+				else{
+					f->R.rax=SYS_EXIT;
+					f->R.rdi=-1;
+					syscall_handler(f);
+				}
+			}*/
+			if(file == NULL){
+				if(fd == STDOUT_FILENO || (temp != NULL && temp->type == STDOUT_FILENO)){
+					putbuf((const char*)buffer, (size_t)size);
+					f->R.rax=size;
+				}
+				else{
+					f->R.rax=SYS_EXIT; //exit
+					f->R.rdi=-1;
+					syscall_handler(f);
+				}
+			}
+			else{
+				if(fd > 2 || temp->type == 2){
+					int bytes_write=file_write(file,buffer,size);
+					if(bytes_write==size)
+						f->R.rax=bytes_write;
+					else
+						f->R.rax=0;
+				}
+			}
 			break;
 		}
 		case SYS_SEEK:
@@ -315,9 +364,26 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
 				struct fd *FD= list_entry(e, struct fd, fd_elem);
 				if (FD->cur_fd == fd) {
-					file_close(FD->file);
+					if (FD->cur_fd == 0 || FD->cur_fd == 1){
+						if (FD->cur_fd == 0 ){
+							FD->file = NULL;
+							FD->type = 0;
+						}
+						else if (FD->cur_fd == 1 ){
+							FD->file = NULL;
+							FD->type = 1;
+						}
+					}
+					else{
+						if(FD->file!=NULL){
+							ref_count_down(FD->file);
+							if (file_ref_cnt(FD->file) == 0){
+								file_close(FD->file);
+							}
+						}
 					list_remove(e);
 					free(FD);
+					}
 					break;
 				}
 			}
@@ -336,7 +402,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
             int oldfd = (int)arg0;
             int newfd = (int)arg1;
             /* oldfd가 유효하지 않다면 실패 반환 */
-            if(oldfd < 0 || newfd < 0){ //todo
+			//printf("oldfd: %d, newfd: %d.\n", oldfd, newfd);
+            if(oldfd < 0 || newfd < 0){
                 f->R.rax = -1;
                 break;
             }
@@ -364,16 +431,58 @@ syscall_handler (struct intr_frame *f UNUSED) {
                     break;
                 }
             }
-            if(newFD != NULL){
-                file_close(newFD->file);
-                newFD->file = oldFD->file;
-                f->R.rax = newFD;
+			if (oldfd >= 2) {
+				if(oldFD == NULL || (oldFD->file == NULL&&oldFD->type == 2)){
+					f->R.rax = -1;
+					break;
+				}
+			}
+				
+	            if(newFD != NULL){
+				if (newFD->file != NULL){
+					ref_count_down(newFD->file);
+					if (file_ref_cnt(newFD->file) == 0){
+						file_close(newFD->file);
+					}
+				}
+				if(oldfd == 0){
+					newFD->type = STDIN_FILENO;
+					newFD->file = NULL;
+				}
+				if(oldfd == 1){
+					newFD->type = STDOUT_FILENO;
+					newFD->file = NULL;
+				}
+				if(oldfd > 1){
+					newFD->file = oldFD->file;
+					ref_count_up(newFD->file);
+					newFD->type = oldFD->type;
+				}
+				//printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
+                f->R.rax = newfd;
             }
             else {
-                struct fd *new_fd = (struct fd *)malloc(sizeof(struct fd));
-                new_fd->file = oldFD->file;
-                new_fd->cur_fd = newfd;
-                list_push_back(&thread_current()->fd_table, &new_fd->fd_elem);
+                newFD = (struct fd *)malloc(sizeof(struct fd));
+				if (newFD == NULL) {
+					f->R.rax = -1;
+					break;
+				}
+				if(oldfd > 1){
+					newFD->file = oldFD->file;
+					ref_count_up(newFD->file);
+					newFD->type = oldFD->type;
+				}
+				if(oldfd == 0){
+					newFD->type = STDIN_FILENO;
+					newFD->file = NULL;
+				}
+				else if(oldfd == 1){
+					newFD->type = STDOUT_FILENO;
+					newFD->file = NULL;
+				}
+                newFD->cur_fd = newfd;
+				//printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
+                list_push_back(&thread_current()->fd_table, &newFD->fd_elem);
                 f->R.rax = newfd;
             }
             break;

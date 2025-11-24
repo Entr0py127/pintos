@@ -2,12 +2,14 @@
 #include <debug.h>
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "threads/thread.h"
 /* An open file. */
 struct file {
 	struct inode *inode;        /* File's inode. */
 	off_t pos;                  /* Current position. */
 	bool deny_write;            /* Has file_deny_write() been called? */
 	int reading;
+	int ref_cnt;
 };
 
 /* Opens a file for the given INODE, of which it takes ownership,
@@ -21,6 +23,7 @@ file_open (struct inode *inode) {
 		file->pos = 0;
 		file->deny_write = false;
 		file->reading=0;
+		file->ref_cnt = 1;
 		return file;
 	} else {
 		inode_close (inode);
@@ -54,11 +57,11 @@ void
 file_close (struct file *file) {
 	if (file != NULL) {
 		while(file->reading>0)
-			{
+			{	
 				thread_yield();
 			}
 		inode_close (file->inode);
-		//free (file);
+		free (file);
 	}
 }
 
@@ -75,12 +78,10 @@ file_get_inode (struct file *file) {
  * Advances FILE's position by the number of bytes read. */
 off_t
 file_read (struct file *file, void *buffer, off_t size) {
-	//printf("file_read called\n");
 	file->reading++;
 	off_t bytes_read = inode_read_at (file->inode, buffer, size, file->pos);
 	file->pos += bytes_read;
 	file->reading--;
-	//printf("file_read finished\n");
 	return bytes_read;
 
 }
@@ -104,13 +105,10 @@ file_read_at (struct file *file, void *buffer, off_t size, off_t file_ofs) {
  * Advances FILE's position by the number of bytes read. */
 off_t
 file_write (struct file *file, const void *buffer, off_t size) {
-	//printf("file_write called\n");
-	//printf("file_deny_write in write: %d\n",file->deny_write);
 	if(file->deny_write)
 		return 0;
 	off_t bytes_written = inode_write_at (file->inode, buffer, size, file->pos);
 	file->pos += bytes_written;
-	//printf("file_write finished. written: %d\n", bytes_written);
 	return bytes_written;
 }
 
@@ -172,4 +170,23 @@ off_t
 file_tell (struct file *file) {
 	ASSERT (file != NULL);
 	return file->pos;
+}
+
+int
+file_ref_cnt(struct file *file) {
+	return file->ref_cnt;
+}
+
+void
+ref_count_down(struct file *file) {
+	if(file != NULL){
+		file->ref_cnt--;
+	}
+}
+
+void
+ref_count_up(struct file *file) {
+	if(file != NULL){
+		file->ref_cnt++;
+	}
 }

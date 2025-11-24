@@ -263,10 +263,17 @@ __do_fork (void *aux) {
 		struct fd *child_fd = (struct fd *)malloc(sizeof(struct fd));
 
 		if(parent_fd != NULL){
-			child_fd->file = file_duplicate(parent_fd->file);
+			if(parent_fd->file != NULL){
+				child_fd->file = file_duplicate(parent_fd->file);
+			}
+			else {
+				child_fd->file = NULL;
+			}
 			child_fd->cur_fd = parent_fd->cur_fd;
+			child_fd->type = parent_fd->type;
 			list_push_back(&current->fd_table, &child_fd->fd_elem);
 		}
+		
 	}
 	
 	if_.R.rax=0;
