@@ -280,7 +280,7 @@ __do_fork (void *aux) {
 			else {
 				child_fd->file = NULL;
 			}
-			child_fd->cur_fd = parent_fd->cur_fd;
+			child_fd->fd_num = parent_fd->fd_num;
 			child_fd->type = parent_fd->type;
 			list_push_back(&current->fd_table, &child_fd->fd_elem);
 		}
@@ -301,7 +301,7 @@ __do_fork (void *aux) {
 error:
 	args->success = false;
 	sema_up(&args->sema);
-	current->child_infop=NULL;
+	current->child_infop=NULL; //for prevent race in process_fork free
 	thread_exit ();
 }
 
@@ -666,11 +666,6 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	//printf("argc: %8x rdi: %8x rsi: %8x rsp: %8x\n",argc, if_->R.rdi, if_->R.rsi, if_->rsp);
 	
-	if(temp!=NULL)
-		palloc_free_page(temp);
-	temp = NULL;
-	free(argv);
-	free(argv_addrs);
 	argv = NULL;
 	argv_addrs = NULL;
 	success = true;

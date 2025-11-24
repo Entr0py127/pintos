@@ -113,7 +113,7 @@ struct fd {
 	struct file *file;
 	struct list_elem fd_elem;
 	int type;
-	int cur_fd;						// 지금 이 파일이 가지고 있는 fd의 숫자
+	int fd_num;						// 지금 이 파일이 가지고 있는 fd의 숫자
 };
 
 struct thread {

@@ -61,7 +61,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			power_off();
 			break;
 		case SYS_EXIT:{
-			char* file_name=thread_current()->name; //rsi는 0이라 thread_current로 받아야함
+			char* file_name=thread_current()->name;
 			int exit_status=(int)arg0;
 			thread_current()->exit_status = exit_status;
 			printf("%s: exit(%d)\n",file_name,exit_status);
@@ -69,12 +69,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 		case SYS_FORK:{
-			//printf("[syscall] FORK called\n");
 			char* thread_name=(char*)arg0;
 			
 			tid_t child_tid = process_fork(thread_name,f);
-
-			// wait() 필요
 			if(child_tid == TID_ERROR){
 				f->R.rax=-1;
 			}
@@ -108,17 +105,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_CREATE:{
 			char* name=(char*)arg0;
 			off_t initial_size=(off_t)arg1;
-			bool success=false;
 			 //순서대로 name 이 null이 아닌지유저 stack인지, 할당되어 있는지
 			if(name!=NULL&&is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL&&initial_size>=0) 
-				success=filesys_create(name, initial_size);
+				f->R.rax=filesys_create(name, initial_size);
 			else
 				{ 
 					f->R.rax=SYS_EXIT; //exit
 					f->R.rdi=-1;
 					syscall_handler(f);
 				}
-			f->R.rax=success;
 			break;
 		}
 		case SYS_REMOVE:
@@ -126,9 +121,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			/* 파일 삭제 성공 시 true 그렇지 않다면 false */
 			char* name=(char*)arg0;
 			if(name!=NULL && is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL){
-				/* file 삭제 */
-				f->R.rax = filesys_remove(name);
+				f->R.rax=filesys_remove(name);
 			}
+			else{ 
+					f->R.rax=SYS_EXIT; 
+					f->R.rdi=-1;
+					syscall_handler(f);
+				}
 			break;
 		}
 		case SYS_OPEN:{
@@ -136,9 +135,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			if(name!=NULL&&is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL){
 				struct file *fo =filesys_open(name);
 				if(fo != NULL){
-					// 리턴해주는 값이 fd인 거임. 이제 이 fd값을 어디에 저장을 해서 출력을 해야하는게 문제인 거지. 어떤 방식으로 해볼까..... 스레드에 저장을 해야 하는 건가???? 그런 거 같은데?
 					// 파일이 오픈이 되었다는 것.
-					struct thread *t = thread_current();
+					struct thread *cur = thread_current();
 					struct fd *fd = (struct fd *)malloc(sizeof(struct fd));
 					if(fd == NULL) {
 						file_close(fo);
@@ -146,10 +144,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 						break;
 					}
 					fd->file = file_duplicate(fo);
-					list_push_back(&t->fd_table, &fd->fd_elem);
-					fd->cur_fd = t->fd_count++;
+					list_push_back(&cur->fd_table, &fd->fd_elem);
+					fd->fd_num = cur->fd_count++;
 					fd->type = 2;
-					f->R.rax=fd->cur_fd;
+					f->R.rax=fd->fd_num
+					;
 				}
 				else
 					f->R.rax=-1;
@@ -169,7 +168,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			struct list *fd_table = &thread_current()->fd_table;
 			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 				struct fd *temp= list_entry(e, struct fd, fd_elem);
-				if (temp->cur_fd == fd) {
+				if (temp->fd_num
+					 == fd) {
 					file = temp->file;
 					break;
 				}
@@ -194,29 +194,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			struct list *fd_table = &thread_current()->fd_table;
 			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 				temp= list_entry(e, struct fd, fd_elem);
-				if (temp->cur_fd == fd) {
+				if (temp->fd_num
+					 == fd) {
 					file = temp->file;
 					break;
 				}
 			}
-			/*
-			if(fd==1||buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0){
-				f->R.rax=SYS_EXIT; //exit
-				f->R.rdi=-1;
-				syscall_handler(f);
-			} //fd==0 or 2
-
-			if(file==NULL){
-				for(int i=0;i<size;i++){
-					memcpy(buffer,(void*)input_getc(),sizeof(char));
-					buffer+=sizeof(char);
-				}
-				f->R.rax=size;
-			}
-			else{
-				int bytes_read=file_read(file,buffer,size);
-				f->R.rax=bytes_read;
-			}*/
 			if(file == NULL){
 				if(fd == STDIN_FILENO || (temp != NULL && temp->type == STDIN_FILENO)){
 					for(int i=0;i<size;i++){
@@ -255,34 +238,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			struct list *fd_table = &thread_current()->fd_table;
 			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 				temp= list_entry(e, struct fd, fd_elem);
-				if(temp->cur_fd == fd){
+				if(temp->fd_num
+					 == fd){
 					file=temp->file;
 					break;
 				}
 			}
-			/*
-			if(fd==STDIN_FILENO){
-				f->R.rax=SYS_EXIT;
-				f->R.rdi=-1;
-				syscall_handler(f);
-			}
-			else if(file!=NULL){
-				int bytes_write=file_write(file,buffer,size);
-				if(bytes_write==size)
-					f->R.rax=bytes_write;
-				else
-					f->R.rax=0;
-			}
-			else if(file==NULL){
-				if(fd==STDOUT_FILENO||temp->type==STDOUT_FILENO)
-					{putbuf((const char*)buffer, (size_t)size);
-					f->R.rax=size;}
-				else{
-					f->R.rax=SYS_EXIT;
-					f->R.rdi=-1;
-					syscall_handler(f);
-				}
-			}*/
 			if(file == NULL){
 				if(fd == STDOUT_FILENO || (temp != NULL && temp->type == STDOUT_FILENO)){
 					putbuf((const char*)buffer, (size_t)size);
@@ -314,7 +275,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			// 1. fd 파일 찾기
 			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
 				struct fd *FD= list_entry(e, struct fd, fd_elem);
-				if (FD->cur_fd == fd) {
+				if (FD->fd_num == fd) {
 					file = FD->file;
 					break;
 				}
@@ -340,7 +301,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			// 1. fd 파일 찾기
 			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
 				struct fd *FD= list_entry(e, struct fd, fd_elem);
-				if (FD->cur_fd == fd) {
+				if (FD->fd_num == fd) {
 					file = FD->file;
 					break;
 				}
@@ -357,29 +318,22 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 		case SYS_CLOSE:{
-			int fd = (int)arg0;
-			/*if (fd < 2) {
-				break;
-			}*/
+			int fd_num = (int)arg0;
 			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
 				struct fd *FD= list_entry(e, struct fd, fd_elem);
-				if (FD->cur_fd == fd) {
-					if (FD->cur_fd == 0 || FD->cur_fd == 1){
-						if (FD->cur_fd == 0 ){
-							FD->file = NULL;
+				if (FD->fd_num == fd_num){
+					if (FD->fd_num == 0 || FD->fd_num == 1){ // stdin, stdout
+						if (FD->fd_num == 0 )
 							FD->type = 0;
-						}
-						else if (FD->cur_fd == 1 ){
-							FD->file = NULL;
+						else if (FD->fd_num == 1 ) //file
 							FD->type = 1;
-						}
+						FD->file=NULL;
 					}
 					else{
 						if(FD->file!=NULL){
 							ref_count_down(FD->file);
-							if (file_ref_cnt(FD->file) == 0){
+							if (file_ref_cnt(FD->file) == 0)
 								file_close(FD->file);
-							}
 						}
 					list_remove(e);
 					free(FD);
@@ -417,7 +371,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
             struct fd *oldFD = NULL;
             for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
                 struct fd *FD = list_entry(e, struct fd, fd_elem);
-                if (FD->cur_fd == oldfd) {
+                if (FD->fd_num == oldfd) {
                     oldFD = FD;
                     break;
                 }
@@ -426,7 +380,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
             struct fd *newFD = NULL;
             for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
                 struct fd *FD= list_entry(e, struct fd, fd_elem);
-                if (FD->cur_fd == newfd) {
+                if (FD->fd_num == newfd) {
                     newFD = FD;
                     break;
                 }
@@ -458,7 +412,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					ref_count_up(newFD->file);
 					newFD->type = oldFD->type;
 				}
-				//printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
                 f->R.rax = newfd;
             }
             else {
@@ -480,8 +433,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					newFD->type = STDOUT_FILENO;
 					newFD->file = NULL;
 				}
-                newFD->cur_fd = newfd;
-				//printf("newFD->fd: %d, newFD->type: %d\n", newFD->cur_fd, newFD->type);
+                newFD->fd_num = newfd;
                 list_push_back(&thread_current()->fd_table, &newFD->fd_elem);
                 f->R.rax = newfd;
             }
