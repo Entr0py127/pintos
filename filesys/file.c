@@ -56,7 +56,7 @@ file_duplicate (struct file *file) {
 void
 file_close (struct file *file) {
 	if (file != NULL) {
-		while(file->reading>0)
+		while(file->ref_cnt > 1)
 			{	
 				thread_yield();
 			}

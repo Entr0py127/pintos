@@ -147,13 +147,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					list_push_back(&cur->fd_table, &fd->fd_elem);
 					fd->fd_num = cur->fd_count++;
 					fd->type = 2;
-					f->R.rax=fd->fd_num
-					;
+					f->R.rax=fd->fd_num;
 				}
 				else
 					f->R.rax=-1;
 			}
-			// 이름이 정상적이지 않거나 하면 exit으로. 재귀 수정 나중에 수정
+			// 이름이 정상적이지 않거나 하면 exit으로.
 			else
 				{
 					f->R.rax=SYS_EXIT; //exit
@@ -194,8 +193,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			struct list *fd_table = &thread_current()->fd_table;
 			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
 				temp= list_entry(e, struct fd, fd_elem);
-				if (temp->fd_num
-					 == fd) {
+				if (temp->fd_num == fd) {
 					file = temp->file;
 					break;
 				}
@@ -353,90 +351,64 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		*/
 		case SYS_DUP2:
         {
-            int oldfd = (int)arg0;
-            int newfd = (int)arg1;
-            /* oldfd가 유효하지 않다면 실패 반환 */
-			//printf("oldfd: %d, newfd: %d.\n", oldfd, newfd);
-            if(oldfd < 0 || newfd < 0){
+            int oldfd_num = (int)arg0;
+            int newfd_num = (int)arg1;
+            if(oldfd_num < 0 || newfd_num < 0){
                 f->R.rax = -1;
                 break;
             }
-            /* oldfd == newfd라면 */
-            if(oldfd == newfd){
-                f->R.rax = newfd;
+            if(oldfd_num == newfd_num){
+                f->R.rax = newfd_num;
                 break;
             }
-            /* newfd가 이미 열려있다면 재사용 inode_open이용 */
-            // 1. oldfd를 가진 fd 찾기
+            // oldfd를 가진 fd 찾기, newfd를 가진 fd 찾기
             struct fd *oldFD = NULL;
+			struct fd *newFD = NULL;
             for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
                 struct fd *FD = list_entry(e, struct fd, fd_elem);
-                if (FD->fd_num == oldfd) {
+                if (FD->fd_num == oldfd_num) 
                     oldFD = FD;
-                    break;
-                }
+                if (FD->fd_num == newfd_num)
+					newFD=FD;
+				if(oldFD != NULL && newFD != NULL)
+					break;
             }
-            // 2. newfd를 가진 fd 찾기
-            struct fd *newFD = NULL;
-            for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
-                struct fd *FD= list_entry(e, struct fd, fd_elem);
-                if (FD->fd_num == newfd) {
-                    newFD = FD;
-                    break;
-                }
-            }
-			if (oldfd >= 2) {
+			if (oldfd_num >= 2) { // file을 가리키면 file이 null이면 안됨
 				if(oldFD == NULL || (oldFD->file == NULL&&oldFD->type == 2)){
 					f->R.rax = -1;
 					break;
 				}
 			}
-				
-	            if(newFD != NULL){
-				if (newFD->file != NULL){
-					ref_count_down(newFD->file);
-					if (file_ref_cnt(newFD->file) == 0){
-						file_close(newFD->file);
-					}
-				}
-				if(oldfd == 0){
-					newFD->type = STDIN_FILENO;
-					newFD->file = NULL;
-				}
-				if(oldfd == 1){
-					newFD->type = STDOUT_FILENO;
-					newFD->file = NULL;
-				}
-				if(oldfd > 1){
-					newFD->file = oldFD->file;
-					ref_count_up(newFD->file);
-					newFD->type = oldFD->type;
-				}
-                f->R.rax = newfd;
-            }
-            else {
-                newFD = (struct fd *)malloc(sizeof(struct fd));
+			// //newfd가 없으면 만들기
+			if(newFD == NULL){
+				newFD = (struct fd *)malloc(sizeof(struct fd));
 				if (newFD == NULL) {
 					f->R.rax = -1;
 					break;
 				}
-				if(oldfd > 1){
-					newFD->file = oldFD->file;
-					ref_count_up(newFD->file);
-					newFD->type = oldFD->type;
+				list_push_back(&thread_current()->fd_table, &newFD->fd_elem);
+				newFD->fd_num = newfd_num;
+			}//newfd가 이미 존재하면 닫고 열기
+			else if(newFD->file != NULL){
+				ref_count_down(newFD->file);
+				if (file_ref_cnt(newFD->file) == 0){
+					file_close(newFD->file);
 				}
-				if(oldfd == 0){
-					newFD->type = STDIN_FILENO;
-					newFD->file = NULL;
-				}
-				else if(oldfd == 1){
-					newFD->type = STDOUT_FILENO;
-					newFD->file = NULL;
-				}
-                newFD->fd_num = newfd;
-                list_push_back(&thread_current()->fd_table, &newFD->fd_elem);
-                f->R.rax = newfd;
-            }
+			}
+			if(oldfd_num == 0){
+				newFD->type = STDIN_FILENO;
+				newFD->file = NULL;
+			}
+			else if(oldfd_num == 1){
+				newFD->type = STDOUT_FILENO;
+				newFD->file = NULL;
+			}
+			else if(oldfd_num > 1){
+				newFD->file = oldFD->file;
+				newFD->type = oldFD->type;
+				ref_count_up(newFD->file);
+			}
+			f->R.rax = newfd_num;
             break;
         }
 		/*case SYS_MMAP:
