@@ -61,10 +61,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			power_off();
 			break;
 		case SYS_EXIT:{
-			char* file_name=thread_current()->name;
+			char* thread_name=thread_current()->name;
 			int exit_status=(int)arg0;
 			thread_current()->exit_status = exit_status;
-			printf("%s: exit(%d)\n",file_name,exit_status);
+			printf("%s: exit(%d)\n",thread_name,exit_status);
 			thread_exit ();
 			break;
 		}
@@ -147,8 +147,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					list_push_back(&cur->fd_table, &fd->fd_elem);
 					fd->fd_num = cur->fd_count++;
 					fd->type = 2;
-					f->R.rax=fd->fd_num
-					;
+					f->R.rax=fd->fd_num;
 				}
 				else
 					f->R.rax=-1;

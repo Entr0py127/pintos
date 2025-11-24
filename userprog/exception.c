@@ -86,7 +86,8 @@ kill (struct intr_frame *f) {
 			printf ("%s: dying due to interrupt %#04llx (%s).\n",
 					thread_name (), f->vec_no, intr_name (f->vec_no));
 			//intr_dump_frame (f);
-			f->R.rax =1;
+			// sys_exit(-1);
+			f->R.rax =1; 
 			f->R.rdi=-1;
 			syscall_handler(f);
 			break;
@@ -103,6 +104,7 @@ kill (struct intr_frame *f) {
 			   kernel. */
 			printf ("Interrupt %#04llx (%s) in unknown segment %04x\n",
 					f->vec_no, intr_name (f->vec_no), f->cs);
+			// sys_exit(-1);
 			f->R.rax =1;
 			f->R.rdi=-1;
 			syscall_handler(f);

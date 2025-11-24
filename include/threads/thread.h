@@ -103,10 +103,13 @@ typedef int64_t fixed_t;
  * blocked state is on a semaphore wait list. */
 struct child_info {
 	tid_t tid;
-	int exit_status;
+	int exit_status;	// 정상적인 종료 or 비정상적인 종료
 	int called;
+	bool exited;		// 자신이 종료되었는 지
+	bool parent_alive; // 부모가 아직 살아있는 지
 	struct list_elem child_elem;
 	struct semaphore child_sema;
+	struct thread *parent;
 };
 
 struct fd {

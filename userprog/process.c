@@ -77,6 +77,8 @@ process_create_initd (const char *file_name) {
 	}
 	child->called = 0;
 	child->exit_status = 0;
+	child->exited = false;
+	child->parent_alive = true;
 	sema_init(&child->child_sema, 0);
 	aux = malloc(sizeof(*aux));
 	if(child == NULL) {
@@ -144,6 +146,8 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	}
 	
 	child->exit_status = 0;
+	child->exited = false;
+	child->parent_alive = true;
 	child->called = 0;
 	sema_init(&child->child_sema, 0);
 
@@ -364,6 +368,7 @@ process_wait (tid_t child_tid) {
 	    e != list_end(&thread_current()->children); 
 	    e = list_next(e)) {
 		struct child_info *child = list_entry(e, struct child_info, child_elem);
+		// wait()가 2번 이상 호출되는 것을 방지하기 위해
 		if (child->tid == child_tid) {
 			if (child->called != 0) {
 				return -1;
@@ -371,8 +376,11 @@ process_wait (tid_t child_tid) {
 			child->called++;
 			sema_down(&child->child_sema);
 			int status = child->exit_status;
+			/*
+			// 바로 자식을 지워버림(자식 지우는 것은 exit에서)
 			list_remove(&child->child_elem);
 			free(child);
+			*/
 			return status;
 		}
 	}
@@ -401,15 +409,38 @@ process_exit (void) {
 		}
         free(f);
     }
+	// 부모가 children 리스트 정리
 	while (!list_empty(&curr->children)) {
 		struct list_elem *e = list_pop_front(&curr->children);
 		struct child_info *child = list_entry(e, struct child_info, child_elem);
-		free(child);
+		// 자식이 죽었던 살았던 부모의 children에서 지워는 주어야함
+		// list_remove(&child->child_elem);
+		// 1. 자식이 죽은 경우
+		if(child->exited){
+			free(child);
+		}
+		// 2. 자식이 아직 살아있는 경우
+		// - child_info에 부모가 살아있는 지를 나타내는 변수를 추가(parent_alive)
+		else{
+			child->parent_alive = false;
+			
+		}
 	}
-	// 부모에게 종료 상태 전달
+	// 자식 : 부모에게 종료 상태 전달
 	if(curr->child_infop != NULL) {
-		curr->child_infop->exit_status = curr->exit_status;
-		sema_up(&curr->child_infop->child_sema);
+		// 부모가 먼저 죽었다면 스스로 child_info 해제
+		if(!curr->child_infop->parent_alive){
+			free(curr->child_infop);
+			curr->child_infop = NULL;
+			// 자식의 fd도 여기서 해제해야하나?
+
+		}
+		// 부모가 아직 살아있다면 종료 상태 전달
+		else{
+			curr->child_infop->exited = true;
+			curr->child_infop->exit_status = curr->exit_status;
+			sema_up(&curr->child_infop->child_sema);
+		}
 	}
 	
 	if(curr->running_file!=NULL)
