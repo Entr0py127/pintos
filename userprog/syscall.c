@@ -1,4 +1,5 @@
 #include "userprog/syscall.h"
+#include "userprog/handler.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
@@ -7,13 +8,6 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
-#include "filesys/filesys.h"
-#include "threads/vaddr.h"
-#include "threads/mmu.h"
-#include "filesys/file.h"
-#include "userprog/process.h"
-#include "filesys/inode.h"
-#include "include/lib/stdio.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -48,389 +42,54 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	struct gp_registers regs=f->R;
-	int syscall_number=regs.rax;
-	uint64_t arg0=regs.rdi;
-	uint64_t arg1=regs.rsi;
-	uint64_t arg2=regs.rdx;
-	//int arg3=regs.r10;
-	//int arg4=regs.r8;
-	//int arg5=regs.r9;
-	switch(syscall_number){
+	int syscall_number = f->R.rax;
+	
+	switch(syscall_number) {
 		case SYS_HALT:
-			power_off();
+			sys_halt(f);
 			break;
-		case SYS_EXIT:{
-			char* file_name=thread_current()->name;
-			int exit_status=(int)arg0;
-			thread_current()->exit_status = exit_status;
-			printf("%s: exit(%d)\n",file_name,exit_status);
-			thread_exit ();
+		case SYS_EXIT:
+			sys_exit(f);
 			break;
-		}
-		case SYS_FORK:{
-			char* thread_name=(char*)arg0;
-			
-			tid_t child_tid = process_fork(thread_name,f);
-			if(child_tid == TID_ERROR){
-				f->R.rax=-1;
-			}
-			else{
-				f->R.rax = child_tid;
-			}
+		case SYS_FORK:
+			sys_fork(f);
 			break;
-		}
 		case SYS_EXEC:
-			const char * f_name = (const char *)arg0;
-			if(f_name!=NULL&&is_user_vaddr(f_name)&&pml4_get_page(thread_current()->pml4,f_name)!=NULL) {
-				int return_status = process_exec(f_name);
-				if(return_status == -1) {
-					f->R.rax=SYS_EXIT; //exit
-					f->R.rdi=-1;
-					syscall_handler(f);
-				}
-			}
-			else{
-				f->R.rax=SYS_EXIT; //exit
-				f->R.rdi=-1;
-				syscall_handler(f);
-			}
-		 	break;
-		case SYS_WAIT:{
-			tid_t tid = (tid_t)arg0;
-			int status = process_wait(tid);
-			f->R.rax = status;
+			sys_exec(f);
 			break;
-		}
-		case SYS_CREATE:{
-			char* name=(char*)arg0;
-			off_t initial_size=(off_t)arg1;
-			 //순서대로 name 이 null이 아닌지유저 stack인지, 할당되어 있는지
-			if(name!=NULL&&is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL&&initial_size>=0) 
-				f->R.rax=filesys_create(name, initial_size);
-			else
-				{ 
-					f->R.rax=SYS_EXIT; //exit
-					f->R.rdi=-1;
-					syscall_handler(f);
-				}
+		case SYS_WAIT:
+			sys_wait(f);
 			break;
-		}
+		case SYS_CREATE:
+			sys_create(f);
+			break;
 		case SYS_REMOVE:
-		{
-			/* 파일 삭제 성공 시 true 그렇지 않다면 false */
-			char* name=(char*)arg0;
-			if(name!=NULL && is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL){
-				f->R.rax=filesys_remove(name);
-			}
-			else{ 
-					f->R.rax=SYS_EXIT; 
-					f->R.rdi=-1;
-					syscall_handler(f);
-				}
+			sys_remove(f);
 			break;
-		}
-		case SYS_OPEN:{
-			char* name=(char*)arg0;
-			if(name!=NULL&&is_user_vaddr(name)&&pml4_get_page(thread_current()->pml4,name)!=NULL){
-				struct file *fo =filesys_open(name);
-				if(fo != NULL){
-					// 파일이 오픈이 되었다는 것.
-					struct thread *cur = thread_current();
-					struct fd *fd = (struct fd *)malloc(sizeof(struct fd));
-					if(fd == NULL) {
-						file_close(fo);
-						f->R.rax = -1;
-						break;
-					}
-					fd->file = file_duplicate(fo);
-					list_push_back(&cur->fd_table, &fd->fd_elem);
-					fd->fd_num = cur->fd_count++;
-					fd->type = 2;
-					f->R.rax=fd->fd_num;
-				}
-				else
-					f->R.rax=-1;
-			}
-			// 이름이 정상적이지 않거나 하면 exit으로.
-			else
-				{
-					f->R.rax=SYS_EXIT; //exit
-					f->R.rdi=-1;
-					syscall_handler(f);
-				}
+		case SYS_OPEN:
+			sys_open(f);
 			break;
-			}
-		case SYS_FILESIZE:{
-			int fd = (int)arg0;
-			struct file *file=NULL;
-			struct list *fd_table = &thread_current()->fd_table;
-			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
-				struct fd *temp= list_entry(e, struct fd, fd_elem);
-				if (temp->fd_num
-					 == fd) {
-					file = temp->file;
-					break;
-				}
-			}
-			off_t filesize=file_length(file); 
-			//printf("filesize: %d\n",filesize);
-			f->R.rax=filesize;
+		case SYS_FILESIZE:
+			sys_filesize(f);
 			break;
-		}
-
-		case SYS_READ:{
-			int fd = (int)arg0;
-			void* buffer=(void*)arg1;
-			off_t size = (off_t)arg2;
-			if(buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0){
-				f->R.rax=SYS_EXIT; //exit
-				f->R.rdi=-1;
-				syscall_handler(f);
-			}
-			struct file *file=NULL;
-			struct fd *temp=NULL;
-			struct list *fd_table = &thread_current()->fd_table;
-			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
-				temp= list_entry(e, struct fd, fd_elem);
-				if (temp->fd_num == fd) {
-					file = temp->file;
-					break;
-				}
-			}
-			if(file == NULL){
-				if(fd == STDIN_FILENO || (temp != NULL && temp->type == STDIN_FILENO)){
-					for(int i=0;i<size;i++){
-						memcpy(buffer,(void*)input_getc(),sizeof(char));
-						buffer+=sizeof(char);
-					}
-					f->R.rax=size;
-				}
-				else{
-					f->R.rax=SYS_EXIT; //exit
-					f->R.rdi=-1;
-					syscall_handler(f);
-				}
-				
-			}
-			else{
-				if(fd > 2 || temp->type == 2){
-					int bytes_read=file_read(file,buffer,size);
-					f->R.rax=bytes_read;
-				}
-			}
+		case SYS_READ:
+			sys_read(f);
 			break;
-		}
-		case SYS_WRITE:{
-			uint64_t fd=regs.rdi;
-			const char* buffer=(const char*)regs.rsi;
-			size_t size=(size_t)regs.rdx;
-			if(buffer==NULL||!is_user_vaddr(buffer)||pml4_get_page(thread_current()->pml4,buffer)==NULL||size<0)
-			{
-				f->R.rax=SYS_EXIT; //exit
-				f->R.rdi=-1;
-				syscall_handler(f);
-			}
-			struct fd *temp=NULL;
-			struct file *file=NULL;
-			struct list *fd_table = &thread_current()->fd_table;
-			for(struct list_elem *e = list_begin(fd_table); e != list_end(fd_table); e = list_next(e)){
-				temp= list_entry(e, struct fd, fd_elem);
-				if(temp->fd_num
-					 == fd){
-					file=temp->file;
-					break;
-				}
-			}
-			if(file == NULL){
-				if(fd == STDOUT_FILENO || (temp != NULL && temp->type == STDOUT_FILENO)){
-					putbuf((const char*)buffer, (size_t)size);
-					f->R.rax=size;
-				}
-				else{
-					f->R.rax=SYS_EXIT; //exit
-					f->R.rdi=-1;
-					syscall_handler(f);
-				}
-			}
-			else{
-				if(fd > 2 || temp->type == 2){
-					int bytes_write=file_write(file,buffer,size);
-					if(bytes_write==size)
-						f->R.rax=bytes_write;
-					else
-						f->R.rax=0;
-				}
-			}
+		case SYS_WRITE:
+			sys_write(f);
 			break;
-		}
 		case SYS_SEEK:
-		{
-			int fd = (int)arg0;
-			unsigned new_pos = (unsigned)arg1;
-			struct file *file = NULL;
-			/* 현재 fd를 가진 파일의 pos 바꾸기 */
-			// 1. fd 파일 찾기
-			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
-				struct fd *FD= list_entry(e, struct fd, fd_elem);
-				if (FD->fd_num == fd) {
-					file = FD->file;
-					break;
-				}
-			}
-			// fd에 해당되는 파일이 없음
-			if(file == NULL){
-				break;
-			}
-			// 2. 해당 fd 파일의 pos 바꾸기(file_seek())
-			file_seek(file, new_pos);
-
+			sys_seek(f);
 			break;
-		}
-			
 		case SYS_TELL:
-		{
-			/* 파일의 위치 바이트 단위로 반환 */
-			int fd = (int)arg0;
-			if (fd < 2) {
-				break;
-			}
-			struct file *file = NULL;
-			// 1. fd 파일 찾기
-			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
-				struct fd *FD= list_entry(e, struct fd, fd_elem);
-				if (FD->fd_num == fd) {
-					file = FD->file;
-					break;
-				}
-			}
-			// fd에 해당되는 파일이 없음
-			if(file == NULL){
-				f->R.rax = 0;
-				break;
-			}
-			// 2. 파일 위치 반환
-			unsigned pos = (unsigned)file_tell(file);
-			f->R.rax = pos;
-
+			sys_tell(f);
 			break;
-		}
-		case SYS_CLOSE:{
-			int fd_num = (int)arg0;
-			for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
-				struct fd *FD= list_entry(e, struct fd, fd_elem);
-				if (FD->fd_num == fd_num){
-					if (FD->fd_num == 0 || FD->fd_num == 1){ // stdin, stdout
-						if (FD->fd_num == 0 )
-							FD->type = 0;
-						else if (FD->fd_num == 1 ) //file
-							FD->type = 1;
-						FD->file=NULL;
-					}
-					else{
-						if(FD->file!=NULL){
-							ref_count_down(FD->file);
-							if (file_ref_cnt(FD->file) == 0)
-								file_close(FD->file);
-						}
-					list_remove(e);
-					free(FD);
-					}
-					break;
-				}
-			}
+		case SYS_CLOSE:
+			sys_close(f);
 			break;
-		}
-		/*
-		* 기존 파일 디스크립터 oldfd를 복제해서, newfd 번호로 새로 할당.
-		* 성공 시: newfd 반환
-		* 표준 입출력 닫기 지원(원래는 닫는 것이 금지되어 있지만 한번 해보기)
-		* stdin을 닫으면 이후 프로그램은 입력을 더 이상 읽을 수 없어야 한다.
-		* (즉, read() 호출 시 입력이 오지 않음)
-		* `stdout`을 닫으면 이후 프로그램은 아무 것도 출력하지 않아야 한다.
-		*/
 		case SYS_DUP2:
-        {
-            int oldfd_num = (int)arg0;
-            int newfd_num = (int)arg1;
-            if(oldfd_num < 0 || newfd_num < 0){
-                f->R.rax = -1;
-                break;
-            }
-            if(oldfd_num == newfd_num){
-                f->R.rax = newfd_num;
-                break;
-            }
-            // oldfd를 가진 fd 찾기, newfd를 가진 fd 찾기
-            struct fd *oldFD = NULL;
-			struct fd *newFD = NULL;
-            for(struct list_elem *e = list_begin(&thread_current()->fd_table); e != list_end(&thread_current()->fd_table); e = list_next(e)){
-                struct fd *FD = list_entry(e, struct fd, fd_elem);
-                if (FD->fd_num == oldfd_num) 
-                    oldFD = FD;
-                if (FD->fd_num == newfd_num)
-					newFD=FD;
-				if(oldFD != NULL && newFD != NULL)
-					break;
-            }
-			if (oldfd_num >= 2) { // file을 가리키면 file이 null이면 안됨
-				if(oldFD == NULL || (oldFD->file == NULL&&oldFD->type == 2)){
-					f->R.rax = -1;
-					break;
-				}
-			}
-			// //newfd가 없으면 만들기
-			if(newFD == NULL){
-				newFD = (struct fd *)malloc(sizeof(struct fd));
-				if (newFD == NULL) {
-					f->R.rax = -1;
-					break;
-				}
-				list_push_back(&thread_current()->fd_table, &newFD->fd_elem);
-				newFD->fd_num = newfd_num;
-			}//newfd가 이미 존재하면 닫고 열기
-			else if(newFD->file != NULL){
-				ref_count_down(newFD->file);
-				if (file_ref_cnt(newFD->file) == 0){
-					file_close(newFD->file);
-				}
-			}
-			if(oldfd_num == 0){
-				newFD->type = STDIN_FILENO;
-				newFD->file = NULL;
-			}
-			else if(oldfd_num == 1){
-				newFD->type = STDOUT_FILENO;
-				newFD->file = NULL;
-			}
-			else if(oldfd_num > 1){
-				newFD->file = oldFD->file;
-				newFD->type = oldFD->type;
-				ref_count_up(newFD->file);
-			}
-			f->R.rax = newfd_num;
-            break;
-        }
-		/*case SYS_MMAP:
+			sys_dup2(f);
 			break;
-		case SYS_MUNMAP:
-			break;
-		case SYS_CHDIR:
-			break;
-		case SYS_MKDIR:
-			break;
-		case SYS_READDIR:
-			break;
-		case SYS_ISDIR:
-			break;
-		case SYS_INUMBER:
-			break;
-		case SYS_SYMLINK:
-			break;
-		case SYS_MOUNT:
-			break;
-		case SYS_UMOUNT:
-			break;*/
 		default:
 			break;
 	}

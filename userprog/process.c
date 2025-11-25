@@ -300,13 +300,7 @@ error:
 int
 process_exec (void *f_name) {
 	char *file_name = (char *)palloc_get_page(PAL_ZERO); /* IMPLEMENTED IN PROJECT 2-3. */
-	if(file_name == NULL){
-		palloc_free_page(file_name);
-		return -1;
-	}
 	strlcpy(file_name, (char *)f_name, strlen(f_name) + 1);
-	palloc_free_page(f_name);
-
 	bool success;
 
 	/* We cannot use the intr_frame in the thread structure.
@@ -674,7 +668,6 @@ done:
 		palloc_free_page (temp);
 	free(argv);
 	free(argv_addrs);
-	sema_up(&thread_current()->exec_sema);
 	if (file != NULL)
 		file_deny_write(file);
 	t->running_file = file;

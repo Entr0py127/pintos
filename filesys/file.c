@@ -8,7 +8,7 @@ struct file {
 	struct inode *inode;        /* File's inode. */
 	off_t pos;                  /* Current position. */
 	bool deny_write;            /* Has file_deny_write() been called? */
-	int reading;
+	struct semaphore file_sema;
 	int ref_cnt;
 };
 
@@ -22,7 +22,7 @@ file_open (struct inode *inode) {
 		file->inode = inode;
 		file->pos = 0;
 		file->deny_write = false;
-		file->reading=0;
+		sema_init(&file->file_sema,1);
 		file->ref_cnt = 1;
 		return file;
 	} else {
@@ -56,10 +56,7 @@ file_duplicate (struct file *file) {
 void
 file_close (struct file *file) {
 	if (file != NULL) {
-		while(file->ref_cnt > 1)
-			{	
-				thread_yield();
-			}
+		sema_down(&file->file_sema);
 		inode_close (file->inode);
 		free (file);
 	}
@@ -78,10 +75,10 @@ file_get_inode (struct file *file) {
  * Advances FILE's position by the number of bytes read. */
 off_t
 file_read (struct file *file, void *buffer, off_t size) {
-	file->reading++;
+	sema_down(&file->file_sema);
 	off_t bytes_read = inode_read_at (file->inode, buffer, size, file->pos);
 	file->pos += bytes_read;
-	file->reading--;
+	sema_up(&file->file_sema);
 	return bytes_read;
 
 }
@@ -107,8 +104,10 @@ off_t
 file_write (struct file *file, const void *buffer, off_t size) {
 	if(file->deny_write)
 		return 0;
+	sema_down(&file->file_sema);
 	off_t bytes_written = inode_write_at (file->inode, buffer, size, file->pos);
 	file->pos += bytes_written;
+	sema_up(&file->file_sema);
 	return bytes_written;
 }
 
