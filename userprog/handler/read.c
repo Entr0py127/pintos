@@ -38,7 +38,7 @@ sys_read(struct intr_frame *f) {
     }
     
     if (file == NULL) {
-        if (fd == STDIN_FILENO || (temp != NULL && temp->type == STDIN_FILENO)) {
+        if (fd == 0 || (temp != NULL && temp->type == 0)) { //type 0 is stdin
             for (int i = 0; i < size; i++) {
                 memcpy(buffer, (void*)input_getc(), sizeof(char));
                 buffer += sizeof(char);

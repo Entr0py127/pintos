@@ -58,10 +58,10 @@ sys_dup2(struct intr_frame *f) {
     }
     
     if (oldfd_num == 0) {
-        newFD->type = STDIN_FILENO;
+        newFD->type = 0; //stdin
         newFD->file = NULL;
     } else if (oldfd_num == 1) {
-        newFD->type = STDOUT_FILENO;
+        newFD->type = 1; //stdout
         newFD->file = NULL;
     } else if (oldfd_num > 1) {
         newFD->file = oldFD->file;
