@@ -107,13 +107,14 @@ struct child_info {
 	int called;
 	struct list_elem child_elem;
 	struct semaphore child_sema;
+	
 };
 
 struct fd {
 	struct file *file;
 	struct list_elem fd_elem;
 	int type;
-	int cur_fd;						// 지금 이 파일이 가지고 있는 fd의 숫자
+	int fd_num;						// 지금 이 파일이 가지고 있는 fd의 숫자
 };
 
 struct thread {
@@ -128,7 +129,6 @@ struct thread {
 	int nice;				// thread별 nice 값 초기는 0
 	struct lock *waiting_lock; // 현재 대기중인 lock
 	struct semaphore *waiting_sema;
-	struct semaphore exec_sema;
 	struct list donations;
 	struct list_elem donation_elem;
 	

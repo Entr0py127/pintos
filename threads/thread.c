@@ -423,7 +423,8 @@ thread_exit (void) {
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable ();
-	list_remove(&thread_current()->all_threads_list_elem);
+	if (thread_current()->all_threads_list_elem.prev != NULL && thread_current()->all_threads_list_elem.next != NULL)
+		list_remove(&thread_current()->all_threads_list_elem);
 	do_schedule (THREAD_DYING);
 	NOT_REACHED ();
 }
@@ -639,14 +640,12 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 
 	t->waiting_lock = NULL; // 락을 가르키는 포인터. 아무 락도 기다리고 있지 않은 상태
 	t->waiting_sema = NULL;
-	sema_init(&t->exec_sema, 0);
 	list_init(&t->donations);
 	list_init(&t->fd_table);
 	t->fd_count = 2;		// 초기값 2로 설정, 0&1은 STDIN, STDOUT
 	#ifdef USERPROG
 		list_init (&t->children);			// children init
 		t->child_infop = NULL;				// NULL	로 초기화를 시켜줌
-
 	#endif
 }
 

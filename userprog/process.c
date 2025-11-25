@@ -35,7 +35,8 @@ struct fork_arg {
 	struct intr_frame *parent_if;
 	uint64_t *parent_pml4;
 	struct child_info *child_info;
-	struct semaphore sema;
+	struct semaphore fork_sema;
+	bool success;
 };
 
 struct initd_arg{
@@ -78,7 +79,7 @@ process_create_initd (const char *file_name) {
 	child->exit_status = 0;
 	sema_init(&child->child_sema, 0);
 	aux = malloc(sizeof(*aux));
-	if(child == NULL) {
+	if(aux == NULL) {
 		free(child);
 		palloc_free_page(fn_copy);
 		return TID_ERROR;
@@ -150,9 +151,9 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	args->parent_if = if_;
 	args->parent_pml4 = curr->pml4;
 	args->child_info = child;
-	sema_init(&args->sema, 0);
+	args->success = false; 
+	sema_init(&args->fork_sema, 0);
 	
-	/* Create thread - 이 시점부터 자식이 실행될 수 있음 */
 	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, args);
 
 	if(tid == TID_ERROR){
@@ -161,14 +162,17 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 		return TID_ERROR;
 	}
 	
-	/* CRITICAL: tid 설정과 리스트 추가를 thread_create 직후에 
-	 * 자식이 종료되기 전에 완료되어야 함 */
 	child->tid = tid;
 	list_push_back(&curr->children, &child->child_elem);
 
-	/* 자식이 초기화를 완료할 때까지 대기 */
-	sema_down(&args->sema);
+	sema_down(&args->fork_sema);
+	bool success = args->success;
 	free(args);
+	if (!success) {
+		list_remove(&child->child_elem);
+		free(child);
+		return TID_ERROR;
+	}
 	return tid;
 }
 
@@ -229,11 +233,11 @@ __do_fork (void *aux) {
 	struct thread *parent = args->parent;
 	struct child_info * child = args->child_info;
 	uint64_t *parent_pml4 = args->parent_pml4;
-
-    if (parent_pml4 == NULL) {
-        thread_exit();
-    }
 	struct thread *current = thread_current ();
+
+    if (parent_pml4 == NULL)  //이미 부모가 종료됨
+		goto error;
+		
 	struct intr_frame *parent_if = args->parent_if; // 부모의 유저 컨텍스트
 	bool succ = true;
 
@@ -261,36 +265,34 @@ __do_fork (void *aux) {
 	for(struct list_elem *e = list_begin(&parent->fd_table); e != list_end(&parent->fd_table); e = list_next(e)){
 		struct fd *parent_fd = list_entry(e, struct fd, fd_elem);
 		struct fd *child_fd = (struct fd *)malloc(sizeof(struct fd));
-
-		if(parent_fd != NULL){
-			if(parent_fd->file != NULL){
-				child_fd->file = file_duplicate(parent_fd->file);
-			}
-			else {
-				child_fd->file = NULL;
-			}
-			child_fd->cur_fd = parent_fd->cur_fd;
-			child_fd->type = parent_fd->type;
-			list_push_back(&current->fd_table, &child_fd->fd_elem);
+		if(child_fd == NULL|| parent_fd == NULL){
+			if(child_fd != NULL)
+				free(child_fd);
+			goto error;
 		}
-		
+		if(parent_fd->file != NULL)
+			child_fd->file = file_duplicate(parent_fd->file);
+		else 
+			child_fd->file = NULL;
+		child_fd->fd_num = parent_fd->fd_num;
+		child_fd->type = parent_fd->type;
+		list_push_back(&current->fd_table, &child_fd->fd_elem);
 	}
 	
 	if_.R.rax=0;
-	
-	sema_up(&args->sema);
+	args->success = true;  
+	sema_up(&args->fork_sema);
 	
 	process_init ();
-	//free(aux);
-	/* Finally, switch to the newly created process. */
 	if (succ)
 	{
 		do_iret (&if_);
 	}
 error:
-	sema_up(&args->sema);
+	args->success = false;
+	sema_up(&args->fork_sema);
+	current->child_infop=NULL; //for prevent race in process_fork free
 	thread_exit ();
-	//free(aux);
 }
 
 /* Switch the current execution context to the f_name.
@@ -381,15 +383,25 @@ process_exit (void) {
 	while (!list_empty(&curr->fd_table)) {
         struct list_elem *e = list_pop_front(&curr->fd_table);
         struct fd *f = list_entry(e, struct fd, fd_elem);
-        file_close(f->file);
+		if (f->file != NULL) {
+			ref_count_down(f->file);
+			if (file_ref_cnt(f->file) == 0) {
+				file_close(f->file);
+			}
+		}
         free(f);
     }
-
+	while (!list_empty(&curr->children)) {
+		struct list_elem *e = list_pop_front(&curr->children);
+		struct child_info *child = list_entry(e, struct child_info, child_elem);
+		free(child);
+	}
 	// 부모에게 종료 상태 전달
 	if(curr->child_infop != NULL) {
 		curr->child_infop->exit_status = curr->exit_status;
 		sema_up(&curr->child_infop->child_sema);
 	}
+	
 	if(curr->running_file!=NULL)
 		file_allow_write(curr->running_file);
 	process_cleanup (); 
@@ -644,11 +656,6 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	//printf("argc: %8x rdi: %8x rsi: %8x rsp: %8x\n",argc, if_->R.rdi, if_->R.rsi, if_->rsp);
 	
-	if(temp!=NULL)
-		palloc_free_page(temp);
-	temp = NULL;
-	free(argv);
-	free(argv_addrs);
 	argv = NULL;
 	argv_addrs = NULL;
 	success = true;
@@ -661,7 +668,6 @@ done:
 		palloc_free_page (temp);
 	free(argv);
 	free(argv_addrs);
-	sema_up(&thread_current()->exec_sema);
 	if (file != NULL)
 		file_deny_write(file);
 	t->running_file = file;
