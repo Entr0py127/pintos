@@ -5,7 +5,6 @@
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
 #include <syscall-nr.h>
-#include <stdlib.h>
 
 void
 sys_open(struct intr_frame *f) {
@@ -16,18 +15,23 @@ sys_open(struct intr_frame *f) {
         struct file *fo = filesys_open(name);
         if (fo != NULL) {
             struct thread *cur = thread_current();
-            struct fd *fd = (struct fd *)malloc(sizeof(struct fd));
-            if (fd == NULL) {
+            // 빈 fd 슬롯 찾기 (2부터 시작, 0=stdin, 1=stdout)
+            int fd_num = -1;
+            for (int i = 2; i < FD_MAX; i++) {
+                if (cur->fd_table[i] == NULL) {
+                    fd_num = i;
+                    break;
+                }
+            }
+            if (fd_num == -1) {
+                // fd 테이블 가득 참
                 file_close(fo);
                 f->R.rax = -1;
                 return;
             }
-            fd->file = file_duplicate(fo);
+            cur->fd_table[fd_num] = file_duplicate(fo);
             file_close(fo);
-            list_push_back(&cur->fd_table, &fd->fd_elem);
-            fd->fd_num = cur->fd_count++;
-            fd->type = 2;
-            f->R.rax = fd->fd_num;
+            f->R.rax = fd_num;
         } else {
             f->R.rax = -1;
         }

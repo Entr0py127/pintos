@@ -1,24 +1,18 @@
 #include "userprog/handler.h"
 #include "filesys/file.h"
 #include "threads/thread.h"
-#include <list.h>
 
 void
 sys_seek(struct intr_frame *f) {
     int fd = (int)f->R.rdi;
     unsigned new_pos = (unsigned)f->R.rsi;
-    struct file *file = NULL;
+    struct thread *cur = thread_current();
     
-    for (struct list_elem *e = list_begin(&thread_current()->fd_table); 
-         e != list_end(&thread_current()->fd_table); 
-         e = list_next(e)) {
-        struct fd *FD = list_entry(e, struct fd, fd_elem);
-        if (FD->fd_num == fd) {
-            file = FD->file;
-            break;
-        }
+    if (fd < 2 || fd >= FD_MAX) {
+        return;
     }
     
+    struct file *file = cur->fd_table[fd];
     if (file == NULL) {
         return;
     }

@@ -137,7 +137,6 @@ thread_init (void) {
 	list_init (&sleep_list);
 	list_init (&all_threads_list);
 
-
 	// mlfqs를 위한 priority별 ready_list 초기화 (PRI_MIN부터 PRI_MAX까지)
 	for (int i = PRI_MIN; i <= PRI_MAX; i++){
 		list_init(&ready[i]);
@@ -641,8 +640,12 @@ init_thread (struct thread *t, const char *name, int priority, int wakeup_time) 
 	t->waiting_lock = NULL; // 락을 가르키는 포인터. 아무 락도 기다리고 있지 않은 상태
 	t->waiting_sema = NULL;
 	list_init(&t->donations);
-	list_init(&t->fd_table);
-	t->fd_count = 2;		// 초기값 2로 설정, 0&1은 STDIN, STDOUT
+	// 배열 기반 fd_table 초기화
+	for (int i = 0; i < FD_MAX; i++) {
+		t->fd_table[i] = NULL;
+	}
+	t->fd_stdin = 0;   // 0: normal stdin
+	t->fd_stdout = 0;  // 0: normal stdout
 	#ifdef USERPROG
 		list_init (&t->children);			// children init
 		t->child_infop = NULL;				// NULL	로 초기화를 시켜줌

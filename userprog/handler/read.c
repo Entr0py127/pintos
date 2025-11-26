@@ -6,16 +6,16 @@
 #include "devices/input.h"
 #include <syscall-nr.h>
 #include <string.h>
-#include <list.h>
 
 void
 sys_read(struct intr_frame *f) {
     int fd = (int)f->R.rdi;
     void* buffer = (void*)f->R.rsi;
     off_t size = (off_t)f->R.rdx;
+    struct thread *cur = thread_current();
     
     if (buffer == NULL || !is_user_vaddr(buffer) || 
-        pml4_get_page(thread_current()->pml4, buffer) == NULL || 
+        pml4_get_page(cur->pml4, buffer) == NULL || 
         size < 0) {
         f->R.rax = SYS_EXIT;
         f->R.rdi = -1;
@@ -23,36 +23,37 @@ sys_read(struct intr_frame *f) {
         return;
     }
     
-    struct file *file = NULL;
-    struct fd *temp = NULL;
-    struct list *fd_table = &thread_current()->fd_table;
-    
-    for (struct list_elem *e = list_begin(fd_table); 
-         e != list_end(fd_table); 
-         e = list_next(e)) {
-        temp = list_entry(e, struct fd, fd_elem);
-        if (temp->fd_num == fd) {
-            file = temp->file;
-            break;
+    // stdin 처리
+    if (fd == 0) {
+        if (cur->fd_stdin == -1) {  // stdin closed
+            f->R.rax = -1;
+            return;
         }
+        for (int i = 0; i < size; i++) {
+            ((char*)buffer)[i] = input_getc();
+        }
+        f->R.rax = size;
+        return;
     }
     
+    // stdout에서 읽기 시도
+    if (fd == 1) {
+        f->R.rax = -1;
+        return;
+    }
+    
+    // 일반 파일
+    if (fd < 2 || fd >= FD_MAX) {
+        f->R.rax = -1;
+        return;
+    }
+    
+    struct file *file = cur->fd_table[fd];
     if (file == NULL) {
-        if (fd == 0 || (temp != NULL && temp->type == 0)) { //type 0 is stdin
-            for (int i = 0; i < size; i++) {
-                memcpy(buffer, (void*)input_getc(), sizeof(char));
-                buffer += sizeof(char);
-            }
-            f->R.rax = size;
-        } else {
-            f->R.rax = SYS_EXIT;
-            f->R.rdi = -1;
-            sys_exit(f);
-        }
-    } else {
-        if (fd > 2 || temp->type == 2) {
-            int bytes_read = file_read(file, buffer, size);
-            f->R.rax = bytes_read;
-        }
+        f->R.rax = -1;
+        return;
     }
+    
+    int bytes_read = file_read(file, buffer, size);
+    f->R.rax = bytes_read;
 }

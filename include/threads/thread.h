@@ -110,12 +110,7 @@ struct child_info {
 	
 };
 
-struct fd {
-	struct file *file;
-	struct list_elem fd_elem;
-	int type;
-	int fd_num;						// 지금 이 파일이 가지고 있는 fd의 숫자
-};
+#define FD_MAX 128  // 최대 파일 디스크립터 수
 
 struct thread {
 	/* Owned by thread.c. */
@@ -149,8 +144,9 @@ struct thread {
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
-	struct list fd_table;
-	int fd_count;							// 전체 fd 숫자
+	struct file *fd_table[FD_MAX];  // 배열 기반 fd 테이블
+	int fd_stdin;                    // stdin 리다이렉션 (-1: closed, 0: normal, >0: dup target)
+	int fd_stdout;                   // stdout 리다이렉션
 	struct file *running_file;
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */

@@ -241,7 +241,6 @@ __do_fork (void *aux) {
 	struct intr_frame *parent_if = args->parent_if; // 부모의 유저 컨텍스트
 	bool succ = true;
 
-	current->fd_count = parent->fd_count;
 	current->child_infop = child;
 	current->running_file=parent->running_file;
 	/* 1. Read the cpu context to local stack. */
@@ -261,23 +260,14 @@ __do_fork (void *aux) {
 		goto error;
 	}
 #endif
-	/* 파일 디스크립터 복제 */
-	for(struct list_elem *e = list_begin(&parent->fd_table); e != list_end(&parent->fd_table); e = list_next(e)){
-		struct fd *parent_fd = list_entry(e, struct fd, fd_elem);
-		struct fd *child_fd = (struct fd *)malloc(sizeof(struct fd));
-		if(child_fd == NULL|| parent_fd == NULL){
-			if(child_fd != NULL)
-				free(child_fd);
-			goto error;
+	/* 파일 디스크립터 복제 - 배열 기반 */
+	for (int i = 2; i < FD_MAX; i++) {
+		if (parent->fd_table[i] != NULL) {
+			current->fd_table[i] = file_duplicate(parent->fd_table[i]);
 		}
-		if(parent_fd->file != NULL)
-			child_fd->file = file_duplicate(parent_fd->file);
-		else 
-			child_fd->file = NULL;
-		child_fd->fd_num = parent_fd->fd_num;
-		child_fd->type = parent_fd->type;
-		list_push_back(&current->fd_table, &child_fd->fd_elem);
 	}
+	current->fd_stdin = parent->fd_stdin;
+	current->fd_stdout = parent->fd_stdout;
 	
 	if_.R.rax=0;
 	args->success = true;  
@@ -379,18 +369,16 @@ process_exit (void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
-	// 파일 디스크립터 정리
-	while (!list_empty(&curr->fd_table)) {
-        struct list_elem *e = list_pop_front(&curr->fd_table);
-        struct fd *f = list_entry(e, struct fd, fd_elem);
-		if (f->file != NULL) {
-			ref_count_down(f->file);
-			if (file_ref_cnt(f->file) == 0) {
-				file_close(f->file);
+	// 파일 디스크립터 정리 - 배열 기반
+	for (int i = 2; i < FD_MAX; i++) {
+		if (curr->fd_table[i] != NULL) {
+			ref_count_down(curr->fd_table[i]);
+			if (file_ref_cnt(curr->fd_table[i]) == 0) {
+				file_close(curr->fd_table[i]);
 			}
+			curr->fd_table[i] = NULL;
 		}
-        free(f);
-    }
+	}
 	while (!list_empty(&curr->children)) {
 		struct list_elem *e = list_pop_front(&curr->children);
 		struct child_info *child = list_entry(e, struct child_info, child_elem);

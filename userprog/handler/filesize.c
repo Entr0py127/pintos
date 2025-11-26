@@ -1,22 +1,21 @@
 #include "userprog/handler.h"
 #include "filesys/file.h"
 #include "threads/thread.h"
-#include <list.h>
 
 void
 sys_filesize(struct intr_frame *f) {
     int fd = (int)f->R.rdi;
-    struct file *file = NULL;
-    struct list *fd_table = &thread_current()->fd_table;
+    struct thread *cur = thread_current();
     
-    for (struct list_elem *e = list_begin(fd_table); 
-         e != list_end(fd_table); 
-         e = list_next(e)) {
-        struct fd *temp = list_entry(e, struct fd, fd_elem);
-        if (temp->fd_num == fd) {
-            file = temp->file;
-            break;
-        }
+    if (fd < 2 || fd >= FD_MAX) {
+        f->R.rax = -1;
+        return;
+    }
+    
+    struct file *file = cur->fd_table[fd];
+    if (file == NULL) {
+        f->R.rax = -1;
+        return;
     }
     
     off_t filesize = file_length(file);
