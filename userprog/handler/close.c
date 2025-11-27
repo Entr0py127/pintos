@@ -3,7 +3,7 @@
 #include "filesys/inode.h"
 #include "threads/thread.h"
 #include <list.h>
-#include <stdlib.h>
+#include "threads/malloc.h"
 
 void
 sys_close(struct intr_frame *f) {

@@ -5,7 +5,7 @@
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
 #include <syscall-nr.h>
-#include <stdlib.h>
+#include "threads/malloc.h"
 
 void
 sys_open(struct intr_frame *f) {
